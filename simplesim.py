@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
 
 class SimpleSim:
-    def __init__(self, **data_mem):
+    def __init__(self, instr_mem, data_mem):
         self.RF = RegisterFile()
-        self.DS = DataSegment(**data_mem)
-
+        self.DS = DataSegment(data_mem)
+        self.instr_mem = instr_mem
+        self.PC = 64
+        self.cycle = 1
+        
+    def next_instr(self):
+        self.cycle += 1
+        self.PC += 4
 
 class RegisterFile:
     """
@@ -17,7 +23,7 @@ class RegisterFile:
         self.R = [0] * self.size
 
     def __str__(self):
-        desc_str = 'Registers:'
+        desc_str = 'Registers'
         for idx in range(len(self.R)):
             if idx % self.print_width == 0:
                 desc_str += '\nR{}:'.format(str(idx).zfill(2))
@@ -43,17 +49,17 @@ class DataSegment:
     Data Segment of the memory. Starts from 64 of the program and until the end of the file.
     """
 
-    def __init__(self, **data_mem):
+    def __init__(self, data_mem):
         self._table = data_mem
         self.print_width = 8
 
     def __str__(self):
-        desc_str = 'Data Segment:'
+        desc_str = 'Data'
         cnt = 0
-        for key, value in sorted(self._table.keys()):
+        for key, value in self._table.items():
             if cnt % self.print_width == 0:
-                desc_str += '\n{}'.format(key)
-            desc_str += '\t{}'.format(value)
+                desc_str += '\n{}:'.format(key)
+            desc_str += '\t{}'.format(value.int_val)
             cnt += 1
 
         return desc_str + '\n'

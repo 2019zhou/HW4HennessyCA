@@ -2,6 +2,7 @@
 import argparse as ap
 from mips32 import Instruction, Data
 from utils import extract_data
+from simplesim import SimpleSim
 
 parser = ap.ArgumentParser(description='MIPS 32 Simulator by ZhouZhou')
 parser.add_argument('--input', type=str, default='testsample.txt',
@@ -10,7 +11,7 @@ parser.add_argument('--outputsim', type=str, default='simulation.txt',
                     help="path of output file for simulation")
 parser.add_argument('--outputdis',  type=str, default='disassembly.txt',
                     help="path of output file for disassembly")
-parser.add_argument('--operation',  type=str, default='dis', choices=[
+parser.add_argument('--operation',  type=str, default='sim', choices=[
                     'dis_sim', 'dis', 'sim'], help="Disassembly or simulation. The value can be 'dis_sim', 'dis' or 'sim'.")
 
 args = parser.parse_args()
@@ -39,10 +40,13 @@ def dis_assembly():
 
 def simulation():
     instr_mem, data_mem = extract_data(args.input)
-    
-    
-                
-
+    sim = SimpleSim(instr_mem, data_mem)
+    with open(args.outputsim, 'wt') as file_out:
+        for cycle in range(len(instr_mem)):
+            write_buf = '--------------------\nCycle:{}\t{}\t{}\n\n{}\n{}\n'.format(cycle + 1, 
+                                                str(sim.PC), str(instr_mem[sim.PC].desc_str), str(sim.RF), str(sim.DS))
+            sim.next_instr()
+            file_out.write(str(write_buf))
 
 if __name__ == "__main__":
     # print("This is the MIPS 32 Simulator homework done by ZhouZhou for 2022 Computer Architecture.")

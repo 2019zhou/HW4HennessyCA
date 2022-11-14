@@ -29,3 +29,8 @@ optional arguments:
 - /tests/ -- tests to validate the implementation of homework instructions
 - ref_disassembly.txt referenced disassembly file given in hw
 - ref_simulation.txt referenced simuluation file given in hw
+
+# My env
+
+- ubuntu 18.04
+- python 3.6.9

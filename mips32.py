@@ -3,7 +3,6 @@
 from enum import Enum, unique
 from abc import abstractmethod
 
-
 class Data:
     def __init__(self, data_str="0", endian='big', pc_val=148):
         self.data_str = data_str
