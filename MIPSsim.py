@@ -27,14 +27,12 @@ def dis_assembly():
                     if is_break:
                         write_buf = Data(data_str=read_buf, pc_val=PC)
                     else:
-                        write_buf = Instruction(instruction_str=read_buf, pc_val=PC)
+                        write_buf = Instruction(instr_str=read_buf, pc_val=PC)
                         is_break = write_buf.is_break()
 
                     file_out.write(str(write_buf) + '\n')
 
                     PC += inst_byte_size
-    
-    print("Disassembly")
 
 
 def simulation():
@@ -43,7 +41,6 @@ def simulation():
 
 if __name__ == "__main__":
     print("This is the MIPS 32 Simulator homework done by ZhouZhou for 2022 Computer Architecture.")
-    print(operation)
     if operation == 'dis' or operation == 'dis_sim':
         dis_assembly()
     if operation == 'sim' or operation == 'dis_sim':
