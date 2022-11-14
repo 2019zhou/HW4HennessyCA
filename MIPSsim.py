@@ -1,6 +1,7 @@
 
 import argparse as ap
 from mips32 import Instruction, Data
+from utils import extract_data
 
 parser = ap.ArgumentParser(description='MIPS 32 Simulator by ZhouZhou')
 parser.add_argument('--input', type=str, default='testsample.txt',
@@ -37,11 +38,14 @@ def dis_assembly():
 
 
 def simulation():
-    print("Simulation")
+    instr_mem, data_mem = extract_data(args.input)
+    
+    
+                
 
 
 if __name__ == "__main__":
-    print("This is the MIPS 32 Simulator homework done by ZhouZhou for 2022 Computer Architecture.")
+    # print("This is the MIPS 32 Simulator homework done by ZhouZhou for 2022 Computer Architecture.")
     if operation == 'dis' or operation == 'dis_sim':
         dis_assembly()
     if operation == 'sim' or operation == 'dis_sim':
