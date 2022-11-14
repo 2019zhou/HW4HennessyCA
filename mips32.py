@@ -11,7 +11,7 @@ class Data:
         self.int_val = signed_str_to_int(self.data_str)
 
     def __str__(self):
-        return '{}\t{} {}'.format(self.data_str, str(self.pc_val), str(self.int_val))
+        return '{}\t{}\t{}'.format(self.data_str, str(self.pc_val), str(self.int_val))
 
 
 class Instruction:
@@ -22,6 +22,10 @@ class Instruction:
     SW, LW
     SLL, SRL, SRA
     NOP
+    AND, NOR
+    MUL
+    SUB, ADD
+    SLT
     -----Category-2-----
     AND, NOR
     MUL
@@ -34,16 +38,18 @@ class Instruction:
         type_i = 1
         type_j = 2
         type_r = 3
-        type_unknown = 4
+        type_2 = 4
+        type_unknown = 5
 
         @classmethod
         def get_type(cls, opcode):
             _inst_dict = {'000010': cls.type_j,
-                          '101011': cls.type_i, '100011': cls.type_i, '000100': cls.type_i, '000101': cls.type_i,
-                          '000001': cls.type_i,
-                          '000111': cls.type_i, '000110': cls.type_i, '001000': cls.type_i, '001001': cls.type_i,
+                          '101011': cls.type_i, '100011': cls.type_i, '000100': cls.type_i, '000101': cls.type_i, '000001': cls.type_i, '000111': cls.type_i, '000110': cls.type_i, '001000': cls.type_i, '001001': cls.type_i,
                           '001010': cls.type_i,
-                          '000000': cls.type_r}
+                          '000000': cls.type_r, '011100': cls.type_r,
+                          '110000': cls.type_2, '110001': cls.type_2, '100001': cls.type_2, '110010': cls.type_2, '110011': cls.type_2,
+                          '110101': cls.type_2}
+
             return _inst_dict[opcode]
 
     class _InstSet(Enum):
@@ -59,11 +65,10 @@ class Instruction:
             mod = __import__(__name__)
             return getattr(mod, self.class_name)
 
-    def __init__(self, instr_str, endian='big', pc_val=600):
+    def __init__(self, instr_str, endian='big', pc_val=64):
         self.instr_str = instr_str
         self.opcode = self.instr_str[0:6]
         self.type = Instruction._Types.get_type(opcode=self.opcode)
-        print(self.type)
         self.pc_val = pc_val
         self.formatted_instr_bin_str = ''
         self.desc_str = ''
@@ -81,6 +86,8 @@ class Instruction:
             self.__class__ = InstructionTypeI
         elif self.type is Instruction._Types.type_r:
             self.__class__ = InstructionTypeR
+        elif self.type is Instruction._Types.type_2:
+            self.__class__ = InstructionType2
 
         self._parse_instr_binary()
 
@@ -89,7 +96,7 @@ class Instruction:
         pass
 
     def __str__(self):
-        return '{}\t{} {}'.format(self.formatted_instr_bin_str, str(self.pc_val), self.desc_str)
+        return '{}\t{}\t{}'.format(self.formatted_instr_bin_str, str(self.pc_val), self.desc_str)
 
     def is_break(self):
         if self.__class__ is InstructionBreakpoint:
@@ -130,8 +137,7 @@ class InstructionJump(InstructionTypeJ):
     |--6J 000010--|---26 instr_index---|
     Format: J target
     Desc: This is a PC-region branch. The low 28 bits of the target address is the instr_index field shifted left 2 bits.
-    The remaining upper bits are the corresponding bits of the address of the instruction in the delay
-    slot (not the branch itself). 
+    The remaining upper bits are the corresponding bits of the address of the instruction in the delay slot (not the branch itself). 
     """
 
     target_instr_index_str = ''
@@ -296,12 +302,12 @@ class InstructionTypeR(Instruction):
     R type: |--6 opcode--|-5 register s(rs)-|-5 register t(rt)-|--5 register d(rd)-|-5 shift(shamt)-|-6 function-|
     includes:
     BREAK, which is a special type, the middle 20 bytes are CODE
-    ADD, SUB  // category 2
-    AND, NOR  // category 2
+    ADD, SUB  // category 1
+    AND, NOR  // category 1
     SLL, SRL, SRA
-    JR   # Todo
-    SLT  // category 2
-    MUL  // category 2    # Todo
+    JR
+    SLT  // category 1
+    MUL  // category 1
     NOP
     """
 
@@ -321,8 +327,10 @@ class InstructionTypeR(Instruction):
         INSTR_000010 = ('InstructionShiftWordRightLogical', 'SRL')
         INSTR_000011 = ('InstructionShiftWordRightArithmetic', 'SRA')
         INSTR_101010 = ('InstructionSetOnLessThan', 'SLT')
+        INSTR_MUL = ('InstructionMulWord', 'MUL')
         INSTR_NOP = ('InstructionNoOperation', 'NOP')
         INSTR_001101 = ('InstructionBreakpoint', 'BREAK')
+        INSTR_001000 = ('InstructionJumpRegister', 'JR')
 
     def _parse_instr_binary(self):
         # print("R type Instruction")
@@ -338,6 +346,8 @@ class InstructionTypeR(Instruction):
                 self.instr_code = InstructionTypeR._InstSet['INSTR_NOP']
             else:
                 self.instr_code = InstructionTypeR._InstSet['INSTR_SLL']
+        elif self.func_code == '000010' and self.opcode == '011100':
+            self.instr_code = InstructionTypeR._InstSet['INSTR_MUL']
         else:
             self.instr_code = InstructionTypeR._InstSet['INSTR_' + self.func_code]
 
@@ -466,6 +476,37 @@ class InstructionShiftWordRightArithmetic(InstructionTypeR):
                                                   int(self.register_t, 2), int(self.shift_amount, 2))
 
 
+class InstructionJumpRegister(InstructionTypeR):
+    """
+    type R, (func_code)JR 001000, p145: To execute a branch to an instruction address in a register
+    |--6 000000--|-5 rs-|-10 00000-00000-|-5 00000-|-6JR 001000-|
+    Format: JR rs
+    Desc: PC ← rs
+    Jump to the effective target address in GPR rs. Execute the instruction following the jump, in the branch delay slot, before jumping.
+    For processors that implement the MIPS16e ASE, set the ISA Mode bit to the value in GPR rs bit 0. Bit 0 of the target address is always zero so that no Address Exceptions occur when bit 0 of the source register is one
+    """
+
+    def _inst_decode(self):
+        self.desc_str = '{} R{}'.format(
+            self.instr_code.abbr, int(self.register_s, 2))
+
+
+class InstructionMulWord(InstructionTypeR):
+    """
+    type R, (func_code)MUL 000010, p207, Multiply Word to GPR: To multiply two words and write the result to a GPR.
+    |--6 011100--|-5 rs-|-5 rt-|--5 rd-|-5 00000-|-6MUL 000010-|
+    Format: MUL rd, rs, rt
+    Desc: rd ← rs * rt
+    The 32-bit word value in GPR rs is multiplied by the 32-bit value in GPR rt, treating both operands as signed values, 
+    to produce a 64-bit result. The least significant 32 bits of the product are written to GPR rd. The contents of HI and
+    LO are UNPREDICTABLE after the operation. No arithmetic exception occurs under any circumstances.
+    """
+
+    def _inst_decode(self):
+        self.desc_str = '{} R{}, R{}, R{}'.format(self.instr_code.abbr, int(self.register_d, 2),
+                                                  int(self.register_s, 2), int(self.register_t, 2))
+
+
 class InstructionSetOnLessThan(InstructionTypeR):
     """
     type R, (func_code)SLT 101010, p256: Set on Less Than: To record the result of a less-than comparison
@@ -512,6 +553,113 @@ class InstructionBreakpoint(InstructionTypeR):
         self.code = self.register_s + self.register_t + self.register_d
 
         self.desc_str = '{}'.format(self.instr_code.abbr)
+
+
+###############################################
+# Category 2 Instructions
+###############################################
+class InstructionType2(Instruction):
+    """
+    Category 2 type: |-1 Imm|--5 opcode--|-5 register s(rs)-|-5 register t(rt)-|--16 immediate-|
+    includes:
+    ADD, SUB  // category 2
+    AND, NOR  // category 2
+    SLT  // category 2
+    MUL  // category 2
+    """
+
+    # InstSet instr_code
+    # register_s = ''
+    # register_t = ''
+    # immediate = ''
+
+    class _InstSet(Instruction._InstSet):
+        INSTR_110000 = ('InstructionAddWord2', 'ADD')
+        INSTR_110001 = ('InstructionSubWord2', 'SUB')
+        INTSR_100001 = ('InstructionMulWord2', 'MUL')
+        INTSR_110010 = ('InstructionAnd2', 'AND')
+        INTSR_110011 = ('InstructionNotOr2', 'NOR')
+        INSTR_110101 = ('InstructionSetOnLessThan2', 'SLT')
+
+    def _parse_instr_binary(self):
+        # print("Catogory 2 type Instruction")
+        # offset variable is for convenience.
+        self.register_s = self.instr_str[6:11]
+        self.register_t = self.instr_str[11:16]
+        self.immediate = self.instr_str[16:32]
+
+        self.instr_code = InstructionType2._InstSet['INSTR_' + self.opcode]
+        self.__class__ = self.instr_code.get_instr_class
+        self._inst_decode()
+
+    @abstractmethod
+    def _inst_decode(self):
+        pass
+
+
+class InstructionAddWord2(InstructionType2):
+    """
+    type 2, (func_code)ADD 10000 :
+    |-1 Imm|--5 opcode--|-5 register s(rs)-|-5 register t(rt)-|--16 immediate-|
+    Format: ADD rt, rs, immediate
+    Desc: rt ← rs + immediate
+    """
+
+    def _inst_decode(self):
+        self.desc_str = '{} R{}, R{}, #{}'.format(self.instr_code.abbr, int(self.register_t, 2),
+                                                  int(self.register_s, 2), signed_str_to_int(self.immediate))
+
+
+class InstructionSubWord2(InstructionType2):
+    """
+    type 2, (func_code)Sub 10001 :
+    |-1 Imm|--5 opcode--|-5 register s(rs)-|-5 register t(rt)-|--16 immediate-|
+    Format: SUB rt, rs, immediate
+    Desc: rt ← rs - immediate
+    """
+
+    def _inst_decode(self):
+        self.desc_str = '{} R{}, R{}, #{}'.format(self.instr_code.abbr, int(self.register_t, 2),
+                                                  int(self.register_s, 2), signed_str_to_int(self.immediate))
+
+
+class InstructionMulWord2(InstructionType2):
+    """
+    type 2, (func_code)Sub 00001 :
+    |-1 Imm|--5 opcode--|-5 register s(rs)-|-5 register t(rt)-|--16 immediate-|
+    Format: MUL rt, rs, immediate
+    Desc: rt ← rs * immediate
+    """
+
+    def _inst_decode(self):
+        self.desc_str = '{} R{}, R{}, #{}'.format(self.instr_code.abbr, int(self.register_t, 2),
+                                                  int(self.register_s, 2), signed_str_to_int(self.immediate))
+
+
+class InstructionAnd2(InstructionType2):
+    """
+    type 2, (func_code) NOR 10011 :
+    |-1 Imm|--5 opcode--|-5 register s(rs)-|-5 register t(rt)-|--16 immediate-|
+    Format: And rt, rs, immediate
+    Desc: rt ← rs & immediate
+    """
+
+    def _inst_decode(self):
+        self.desc_str = '{} R{}, R{}, #{}'.format(self.instr_code.abbr, int(self.register_t, 2),
+                                                  int(self.register_s, 2), signed_str_to_int(self.immediate))
+
+
+class InstructionSetOnLessThan2(InstructionType2):
+    """
+    type 2, (func_code)SLT 10101:
+    |-1 Imm|--5 opcode--|-5 register s(rs)-|-5 register t(rt)-|--16 immediate-|
+    Format: SLT rt, rs, immediate
+    Desc: rt ← (rs < immediate)
+    """
+
+    def _inst_decode(self):
+        self.desc_str = '{} R{}, R{}, #{}'.format(self.instr_code.abbr, int(self.register_t, 2),
+                                                  int(self.register_s, 2), signed_str_to_int(self.immediate))
 
 
 def signed_str_to_int(bin_str='0' * 32):

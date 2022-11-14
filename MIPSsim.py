@@ -31,7 +31,8 @@ def dis_assembly():
                         is_break = write_buf.is_break()
 
                     file_out.write(str(write_buf) + '\n')
-
+                    
+                    print(str(write_buf) + '\n')
                     PC += inst_byte_size
 
 
