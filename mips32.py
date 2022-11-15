@@ -340,6 +340,11 @@ class InstructionTypeR(Instruction):
         self.shift_amount = self.instr_str[21:26]
         self.func_code = self.instr_str[26:32]
 
+        self.dest = int(self.register_d, 2)
+        self.op1_val = int(self.register_s, 2)
+        self.op2_val = int(self.register_t, 2)
+        self.sa_val = int(self.shift_amount, 2)
+
         if self.func_code == '000000':
             if self.register_s == '00000' and self.register_t == '00000' and self.register_d == '00000' and self.shift_amount == '00000':
                 self.instr_code = InstructionTypeR._InstSet['INSTR_NOP']
@@ -371,10 +376,6 @@ class InstructionAddWord(InstructionTypeR):
     """
 
     def _inst_decode(self):
-        self.dest = int(self.register_d, 2)
-        self.op1_val = int(self.register_s, 2)
-        self.op2_val = int(self.register_t, 2)
-
         self.desc_str = '{} R{}, R{}, R{}'.format(self.instr_code.abbr, int(self.register_d, 2),
                                                   int(self.register_s, 2), int(self.register_t, 2))
 
@@ -586,6 +587,10 @@ class InstructionType2(Instruction):
         self.register_s = self.instr_str[6:11]
         self.register_t = self.instr_str[11:16]
         self.immediate = self.instr_str[16:32]
+
+        self.op1_val = int(self.register_s, 2)
+        self.dest = int(self.register_t, 2)
+        self.imm_val = int(self.immediate, 2)
 
         self.instr_code = InstructionType2._InstSet['INSTR_' + self.opcode]
         self.__class__ = self.instr_code.get_instr_class

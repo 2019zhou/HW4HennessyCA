@@ -1,17 +1,104 @@
 # -*- coding: utf-8 -*-
+from mips32 import Instruction, InstructionJump, InstructionJumpRegister, InstructionBranchOnEqual, InstructionBranchOnGreaterThanZero, InstructionBranchOnLessThanZero, InstructionStoreWord, InstructionLoadWord, InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical,InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord, InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2, signed_str_to_int
+
 
 class SimpleSim:
+    '''
+    J, JR, BEQ, BGEZ, BLTZ   # BR
+    BREAK
+    SW, LW  # LS
+    SLL, SRL, SRA #ALU
+    NOP
+    AND, NOR #ALU
+    MUL #ALU
+    SUB, ADD #ALU
+    SLT #ALU
+    '''
+    
     def __init__(self, instr_mem, data_mem):
         self.RF = RegisterFile()
         self.DS = DataSegment(data_mem)
         self.instr_mem = instr_mem
         self.PC = 64
-        self.cycle = 1
+        self.cycle = 0
+        self.is_over = False
         
     def next_instr(self):
         self.cycle += 1
-        self.PC += 4
-
+        # print(self.cycle)
+        cur_str = self.instr_mem[self.PC]
+        if cur_str.is_break():
+            self.is_over = True
+            return
+        
+        instr_set = (InstructionStoreWord, InstructionLoadWord, InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical,InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord, InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2)
+            
+        if isinstance(cur_str, instr_set):
+            self.PC += 4
+            rg1 = self.RF.reg_read(int(cur_str.instr_str[6:11], 2))
+            rg2 = self.RF.reg_read(int(cur_str.instr_str[11:16], 2))
+            # print('rg1:{}'.format(rg1))
+            # print('rg2:{}'.format(rg2))
+        
+        ## branch instructions
+        if isinstance(cur_str, InstructionJump):
+            self.PC = cur_str.dest
+        elif isinstance(cur_str, InstructionJumpRegister):
+            self.PC = self.RF.reg_read(int(cur_str.register_s, 2))
+        elif isinstance(cur_str, InstructionBranchOnEqual):
+            if self.RF.reg_read(cur_str.op1_val) == self.RF.reg_read(cur_str.op2_val):
+                self.PC += 4
+                self.PC += cur_str.dest
+            else:
+                self.PC += 4
+        elif isinstance(cur_str, InstructionBranchOnGreaterThanZero):
+            if self.RF.reg_read(int(cur_str.register_s, 2)) > 0:
+                self.PC += 4
+                self.PC += signed_str_to_int(cur_str.offset) << 2
+            else:
+                self.PC += 4
+        elif isinstance(cur_str, InstructionBranchOnLessThanZero):
+            if self.RF.reg_read(int(cur_str.register_s, 2)) < 0:
+                self.PC += 4
+                self.PC += signed_str_to_int(cur_str.offset) << 2
+            else:
+                self.PC += 4
+        elif isinstance(cur_str, InstructionStoreWord):
+            self.DS.mem_write(rg1 + cur_str.op1_val, rg2)
+        elif isinstance(cur_str, InstructionLoadWord):
+            self.RF.reg_write(cur_str.dest, self.DS.mem_read(cur_str.op1_val + rg1))
+        elif isinstance(cur_str, InstructionShiftWordLeftLogical):
+            self.RF.reg_write(cur_str.dest, rg2 << cur_str.sa_val )
+        elif isinstance(cur_str, InstructionShiftWordRightLogical):
+            self.RF.reg_write(cur_str.dest, rg2 >> cur_str.sa_val)
+        elif isinstance(cur_str, InstructionShiftWordRightArithmetic):
+            self.RF.reg_write(cur_str.dest, rg2 >> cur_str.sa_val)
+        elif isinstance(cur_str, InstructionAnd):
+            self.RF.reg_write(cur_str.dest, rg1 & rg2)
+        elif isinstance(cur_str, InstructionNotOr):
+            self.RF.reg_write(cur_str.dest, ~(rg1 | rg2))
+        elif isinstance(cur_str, InstructionMulWord): # not checked
+            self.RF.reg_write(cur_str.dest, rg1 * rg2)
+        elif isinstance(cur_str, InstructionSubtractWord):
+            self.RF.reg_write(cur_str.dest, rg1 - rg2)
+        elif isinstance(cur_str, InstructionAddWord):
+            self.RF.reg_write(cur_str.dest, rg1 + rg2)
+        elif isinstance(cur_str, InstructionSetOnLessThan):
+            self.RF.reg_write(cur_str.dest, rg1 < rg2)
+        elif isinstance(cur_str, InstructionAddWord2):
+            self.RF.reg_write(cur_str.dest, rg1 + cur_str.imm_val)
+        elif isinstance(cur_str, InstructionSubWord2):
+            self.RF.reg_write(cur_str.dest, rg1 - cur_str.imm_val)
+        elif isinstance(cur_str, InstructionMulWord2):
+            self.RF.reg_write(cur_str.dest, rg1 * cur_str.imm_val)
+        elif isinstance(cur_str, InstructionAnd2):
+            self.RF.reg_write(cur_str.dest, cur_str.destrg1 & cur_str.imm_val)   
+        elif isinstance(cur_str, InstructionSetOnLessThan2):
+            self.RF.reg_write(cur_str.dest, rg1 < cur_str.imm_val)     
+            
+        
+        
+        
 class RegisterFile:
     """
     32 integer registers.
@@ -65,7 +152,7 @@ class DataSegment:
         return desc_str + '\n'
 
     def mem_write(self, mem_addr: int, value: int):
-        self._table[mem_addr] = value
+        self._table[mem_addr].int_val = value
 
     def mem_read(self, mem_addr: int) -> int:
-        return self._table[mem_addr]
+        return self._table[mem_addr].int_val

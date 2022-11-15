@@ -11,8 +11,8 @@ parser.add_argument('--outputsim', type=str, default='simulation.txt',
                     help="path of output file for simulation")
 parser.add_argument('--outputdis',  type=str, default='disassembly.txt',
                     help="path of output file for disassembly")
-parser.add_argument('--operation',  type=str, default='sim', choices=[
-                    'dis_sim', 'dis', 'sim'], help="Disassembly or simulation. The value can be 'dis_sim', 'dis' or 'sim'.")
+parser.add_argument('--operation',  type=str, default='dis_sim', choices=[
+                    'dis_sim', 'dis', 'sim'], help="Disassembly or simulation. The value can be 'dis_sim' which performs both disassembly and the simulation, 'dis' which performs disassembley or 'sim' which performs simulation")
 
 args = parser.parse_args()
 operation = args.operation
@@ -34,19 +34,25 @@ def dis_assembly():
 
                     file_out.write(str(write_buf) + '\n')
                     
-                    print(str(write_buf) + '\n')
+                    # print(str(write_buf) + '\n')
                     PC += inst_byte_size
 
 
 def simulation():
     instr_mem, data_mem = extract_data(args.input)
     sim = SimpleSim(instr_mem, data_mem)
+    cycle = 0
     with open(args.outputsim, 'wt') as file_out:
-        for cycle in range(len(instr_mem)):
-            write_buf = '--------------------\nCycle:{}\t{}\t{}\n\n{}\n{}\n'.format(cycle + 1, 
-                                                str(sim.PC), str(instr_mem[sim.PC].desc_str), str(sim.RF), str(sim.DS))
+        while not sim.is_over:
+            cycle += 1
+            if cycle == 100:
+                break
+            write_buf = '--------------------\nCycle:{}\t{}\t{}'.format(sim.cycle + 1, 
+                                    str(sim.PC), '\t'.join(str(instr_mem[sim.PC].desc_str).split(' ', 1)))
             sim.next_instr()
+            write_buf += '\n\n{}\n{}\n'.format(str(sim.RF), str(sim.DS))
             file_out.write(str(write_buf))
+
 
 if __name__ == "__main__":
     # print("This is the MIPS 32 Simulator homework done by ZhouZhou for 2022 Computer Architecture.")

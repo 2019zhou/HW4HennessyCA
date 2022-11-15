@@ -2,6 +2,11 @@
 
 ## Usage
 
+**使用**
+```shell
+python MIPSsim.py
+```
+
 ```shell
 usage: MIPSsim.py [-h] [--input INPUT] [--outputsim OUTPUTSIM]
                   [--outputdis OUTPUTDIS] [--operation {dis_sim,dis,sim}]
@@ -30,7 +35,7 @@ optional arguments:
 - ref_disassembly.txt referenced disassembly file given in hw
 - ref_simulation.txt referenced simuluation file given in hw
 
-# My env
+## My env
 
 - ubuntu 18.04
 - python 3.6.9
