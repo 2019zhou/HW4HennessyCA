@@ -29,3 +29,8 @@ def extract_data(in_file_path):
     # print(inst_bin_list)
     # print(data_bin_list)
     return inst_mem, data_mem
+
+
+def int_to_16bitstr(val):
+    m16 = lambda x : x & 0xFFFF
+    return format(m16(val), 'b').zfill(16)

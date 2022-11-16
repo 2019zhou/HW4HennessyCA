@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from mips32 import Instruction, InstructionJump, InstructionJumpRegister, InstructionBranchOnEqual, InstructionBranchOnGreaterThanZero, InstructionBranchOnLessThanZero, InstructionStoreWord, InstructionLoadWord, InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical, InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord, InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2, signed_str_to_int
-
+from utils import int_to_16bitstr
 
 class SimpleSim:
     '''
@@ -56,11 +56,11 @@ class SimpleSim:
             self.RF.reg_write(
                 cur_str.dest, self.DS.mem_read(cur_str.op1_val + rg1))
         elif isinstance(cur_str, InstructionShiftWordLeftLogical):
-            self.RF.reg_write(cur_str.dest, rg2 << cur_str.sa_val)
+            self.RF.reg_write(cur_str.dest, signed_str_to_int(int_to_16bitstr(rg2)[cur_str.sa_val:] + "0"*cur_str.sa_val))
         elif isinstance(cur_str, InstructionShiftWordRightLogical):
-            self.RF.reg_write(cur_str.dest, rg2 >> cur_str.sa_val)
+            self.RF.reg_write(cur_str.dest, signed_str_to_int("0"*cur_str.sa_val + int_to_16bitstr(rg2)[:cur_str.sa_val]))
         elif isinstance(cur_str, InstructionShiftWordRightArithmetic):
-            self.RF.reg_write(cur_str.dest, rg2 >> cur_str.sa_val)
+            self.RF.reg_write(cur_str.dest, signed_str_to_int(int_to_16bitstr(rg2)[0]*cur_str.sa_val + int_to_16bitstr(rg2)[:cur_str.sa_val]))
         elif isinstance(cur_str, InstructionAnd):
             self.RF.reg_write(cur_str.dest, rg1 & rg2)
         elif isinstance(cur_str, InstructionNotOr):
@@ -84,6 +84,8 @@ class SimpleSim:
         elif isinstance(cur_str, InstructionSetOnLessThan2):
             self.RF.reg_write(cur_str.dest, rg1 < cur_str.imm_val)
 
+
+# m16 = lamda x : x 0xFFFF
 
 class RegisterFile:
     """
