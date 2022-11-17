@@ -32,5 +32,30 @@ def extract_data(in_file_path):
 
 
 def int_to_16bitstr(val):
-    m16 = lambda x : x & 0xFFFF
-    return format(m16(val), 'b').zfill(16)
+    """
+    transfer the signed integer value to str. Currently only support 16 bits binary strings.
+      The string should be represented in two's complement format. Left most bits is the most significant bit.
+    :param bin_str: binary strings to be converted
+    :return: two's complement format string
+    """
+    if val < 0:
+        return format(val & 0xFFFF, 'b').zfill(16)
+    else:
+        return format(val, 'b').zfill(16)
+
+
+def signed_str_to_int(bin_str='0' * 32):
+    """
+    transfer the binary string to a signed integer value. Currently only support 16 bits binary strings.
+      The string should be represented in two's complement format. Left most bits is the most significant bit.
+    :param bin_str: binary strings to be converted
+    :return: signed integer value
+    """
+    if bin_str[0] == '1':  # the string is negative number
+        # get the xor operand based on the bit length of the binary
+        xor_operand = int('1' * len(bin_str), 2)
+        return -((int(bin_str, 2) ^ xor_operand) + 1)
+    elif bin_str[0] == '0':  # the string is a positive number
+        return int(bin_str, 2)
+    else:
+        raise RuntimeError('wrong binary string format')
