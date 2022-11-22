@@ -39,9 +39,9 @@ def int_to_16bitstr(val):
     :return: two's complement format string
     """
     if val < 0:
-        return format(val & 0xFFFF, 'b').zfill(16)
+        return format(val & 0xFFFFFFFF, 'b').zfill(32)
     else:
-        return format(val, 'b').zfill(16)
+        return format(val, 'b').zfill(32)
 
 
 def signed_str_to_int(bin_str='0' * 32):

@@ -68,15 +68,15 @@ class SimpleSim:
         elif isinstance(cur_str, InstructionMulWord):  # not checked
             self.RF.reg_write(cur_str.dest, rg1 * rg2)
         elif isinstance(cur_str, InstructionSubtractWord):
-            self.RF.reg_write(cur_str.dest, (rg1 - rg2) & 0xFFFF)
+            self.RF.reg_write(cur_str.dest, rg1 - rg2)
         elif isinstance(cur_str, InstructionAddWord):
-            self.RF.reg_write(cur_str.dest, (rg1 + rg2) & 0xFFFF)
+            self.RF.reg_write(cur_str.dest, rg1 + rg2)
         elif isinstance(cur_str, InstructionSetOnLessThan):
             self.RF.reg_write(cur_str.dest, rg1 < rg2)
         elif isinstance(cur_str, InstructionAddWord2):
-            self.RF.reg_write(cur_str.dest, (rg1 + cur_str.imm_val) & 0xFFFF)
+            self.RF.reg_write(cur_str.dest, rg1 + cur_str.imm_val)
         elif isinstance(cur_str, InstructionSubWord2):
-            self.RF.reg_write(cur_str.dest, (rg1 - cur_str.imm_val) & 0xFFFF)
+            self.RF.reg_write(cur_str.dest, rg1 - cur_str.imm_val)
         elif isinstance(cur_str, InstructionMulWord2):
             self.RF.reg_write(cur_str.dest, rg1 * cur_str.imm_val)
         elif isinstance(cur_str, InstructionAnd2):
