@@ -2,7 +2,8 @@
 import argparse as ap
 from mips32 import Instruction, Data
 from utils import extract_data, signed_str_to_int, int_to_16bitstr
-from simplesim import SimpleSim
+# from simplesim import SimpleSim
+from pipeline import PipeLine
 
 parser = ap.ArgumentParser(description='MIPS 32 Simulator by ZhouZhou')
 parser.add_argument('--input', type=str, default='testsample.txt',
@@ -40,7 +41,8 @@ def dis_assembly():
 
 def simulation():
     instr_mem, data_mem = extract_data(args.input)
-    sim = SimpleSim(instr_mem, data_mem)
+    # sim = SimpleSim(instr_mem, data_mem)
+    sim = Pipeline(instr_mem, data_mem)
     cycle = 0
     with open(args.outputfilename, 'wt') as file_out:
         while not sim.is_over:

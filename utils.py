@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 
 from mips32 import Instruction, Data
-import collections
+from collections import OrderedDict
 
 def extract_data(in_file_path):
     inst_byte_size = 4
     PC = 64
     read_buf = b''
     is_break = False
-    inst_mem = collections.OrderedDict()
-    data_mem = collections.OrderedDict()
+    inst_mem = OrderedDict()
+    data_mem = OrderedDict()
 
     with open(in_file_path, 'r') as file_in:
         for read_buf in file_in.readlines():
