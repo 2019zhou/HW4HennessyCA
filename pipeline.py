@@ -18,9 +18,9 @@ class _PipelineInstEntry:
         LW: IF, Issue, MEM, WB;
         SLL, SRL ,SRA and MUL: IF, Issue, ALUB, WB
         Other instructions: IF, Issue, ALU, WB.
-        
+
         maintain the instruction status table 
-        
+
         """
         self.inst = inst
         self.pc_val = inst.pc_val
@@ -47,7 +47,8 @@ class _PipelineInstEntry:
                            InstructionBranchOnGreaterThanZero,
                            InstructionBranchOnLessThanZero)
         sl_inst_set = (InstructionStoreWord, InstructionLoadWord)
-        alu_inst_set = (InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical, InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord, InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2)
+        alu_inst_set = (InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical, InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord,
+                        InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2)
 
         if isinstance(self.inst, alu_inst_set):
             inst_type = _InstTypes.ALU
@@ -60,14 +61,12 @@ class _PipelineInstEntry:
         return inst_type
 
 
-
 class Pipeline:
     pc = 64
     cycle = 0
     inst_size = 4
-    
+
     def __init__(self, inst_mem, data_mem):
-        self.IF = "" # to do
         self.PreIssue = Buffer("Pre-Issue", 4)
         self.PreALU = Queue("Pre-ALU", 2)
         self.PostALU = Buffer("Post-ALU", 1)
@@ -75,20 +74,24 @@ class Pipeline:
         self.PostALUB = Buffer("Post-ALUB", 1)
         self.PreMEM = Queue("Pre-MEM", 2)
         self.PostMEM = Buffer("Post-MEM", 1)
-        
+
         self.inst_mem = inst_mem
         self.RF = RegisterFile()
         self.DS = DataSegment(data_mem)
-        
-        self.FU = FunctionalUnitStatus(self.RF, self.cbd)
-        
+
+        self.FU = FunctionalUnitStatus(self.RF)
+
         self.next_pc = self.pc
         self.is_over = False
-    
+
     def next_cycle(self):
         self.cycle += 1
         
-        
+    def snapshotifunit(self):
+        desc_str = "IF Unit:\n\tWaiting Instruction: \n"
+        desc_str += "\tExecuted Instruction: \n"
+        return desc_str
+
     def fetch(self):
         """
         Instruction Fetch unit can fetch and decode at most two instructions at each cycle (in program order). The unit should check all the following conditions before it can fetch further instructions.
@@ -97,8 +100,7 @@ class Pipeline:
         - If there is only one empty slot in the Pre-issue buffer at the end of the previous cycle, only one instruction can be fetched at the current cycle.
         """
         pass
-    
-    
+
     def issue(self):
         """
         Issue unit follows the basic Scoreboard algorithm to issue instructions. It can issue at most two instruction out-of-order per cycle. When an instruction is issued, it is removed from the Pre-issue Buffer before the end of current cycle. The issue unit searches from entry 0 to entry 3 (in that order) of Pre-issue buffer and issues instructions if:
@@ -110,7 +112,7 @@ class Pipeline:
         - The stores must be issued in order
         """
         pass
-    
+
     def alu(self):
         """
         The ALU handles the calculation all non-memory instructions except SLL, SRL, SRA and MUL. All the instructions will take one cycle in ALU. In other words, if the Pre-ALU queue is not empty at the end of cycle N, ALU processes the topmost instruction from the Pre-ALU queue in cycle N+1. The topmost instruction is removed from the Pre-ALU queue before the end of cycle N+1. (Therefore the issue unit will see at least one empty slot in Pre-ALU queue in the beginning of cycle N+2.)
@@ -124,7 +126,7 @@ class Pipeline:
         The processed instruction and its result will be written into the Post-ALUB buffer at the end of cycle N+2. Note that this operation will be performed regardless of whether the Post-ALUB is occupied at the beginning of cycle N+2.
         """
         pass
-    
+
     def mem(self):
         """
         The MEM unit handles LW and SW instructions in Pre-MEM queue. For LW instruction, it takes one cycle to finish. When a LW instruction finishes, the instruction with destination register id and the data will be written to the Post-MEM buffer before the end of cycle. Note that this operation will be performed regardless of whether the Post-MEM is occupied at the beginning of this cycle. For SW instruction, it takes one cycle to write the data to memory. When a SW instruction finishes, nothing would be sent to Post-MEM buffer. When a MEM instruction finishes execution at MEM unit, it is removed from the Pre-MEM queue before the end of cycle.
@@ -136,12 +138,10 @@ class Pipeline:
         WB unit can execute up to three writebacks in one cycle. It updates the Register File based on the content of Post-ALU Buffer, Post-ALUB Buffer, and Post-MEM Buffer. The update is finished before the end of the cycle. The new value will be available at the beginning of next cycle
         """
         pass
-    
-        
 
 
 class _FUEntry:
-    def __init__(self, pip_inst: _PipelineInstEntry, f_i: int = None, f_j:int = None, f_k:int = None, q_j: int = None, q_k: int = None, r_j: int = None, r_k: int = None):
+    def __init__(self, pip_inst: _PipelineInstEntry, f_i: int = None, f_j: int = None, f_k: int = None, q_j: int = None, q_k: int = None, r_j: int = None, r_k: int = None):
         self.pip_inst = pip_inst
         self.idx = pip_inst.issue_cycle
         self.f_i = f_i   # destinateion register of the intruction in the FU
@@ -163,40 +163,39 @@ class _FUEntry:
         return is_ready
 
 
-
-
 class Queue:
     """
     queue that follows FIFO used by 
     Pre-ALU, Pre-ALUB, Pre-MEM
     """
+
     def __init__(self, name: str, size: int):
         self.entries = []
         self._size = size
         self._name = name
-        
+
     def add_entry(self, entry: _PipelineInstEntry):
         if len(self.entries) < self._size:
             self.entries.append(entry)
             return True
         else:
             return False
-    
+
     def pop_entry(self):
         if len(self.entries) == 0:
             return False
         else:
-            self.entries.pop()
+            del (self.entries[0])
             return True
-                
+
     def __str__(self):
-        desc_str = self._name + " Queue:"
-        if self._size >= 2:
-            desc_str += "\n"
+        desc_str = self._name + " Queue:\n"
         for idx in range(self._size):
             desc_str += "\tEntry " + str(idx) + ":"
             if idx < len(self.entries):
                 desc_str += str(self.entries[idx]) + "\n"
+            else:
+                desc_str += "\n"
         return desc_str
 
     def size(self):
@@ -204,11 +203,9 @@ class Queue:
 
     def isempty(self):
         return len(self.entries) == 0
-    
+
     def isfull(self):
         return len(self.entries) == self._size
-    
-        
 
 
 class Buffer:
@@ -216,11 +213,12 @@ class Buffer:
     Buffer used by 
     Pre-Issue, Post-ALU, Post-ALUB, Post-MEM
     """
+
     def __init__(self, name: str, size: int):
         self._size = size
         self._name = name
         self._table = []
-        
+
     def add_entry(self, entry: _PipelineInstEntry):
         if len(self._table) >= self.size:
             # if the BTB is full pop the earliest entry and add the new one
@@ -231,27 +229,26 @@ class Buffer:
         pass
 
     def __str__(self):
-        desc_str = self._name + " Buffer:"
-        if self._size == 1:
+        desc_str = self._name + " Buffer:\n"
+        if len(self._table) == 1:
             desc_str += str(self._table[0]) + "\n"
         if self._size >= 2:
-            desc_str += "\n"
             for idx in range(self._size):
                 desc_str += "\tEntry " + str(idx) + ":"
                 if idx < len(self._table):
                     desc_str += str(self._table[idx]) + "\n"
+                else:
+                    desc_str += "\n"
         return desc_str
-    
+
     def size(self):
         return len(self._table)
 
     def isempty(self):
         return len(self._table) == 0
-    
+
     def isfull(self):
         return len(self._table) == self._size
-            
-       
 
 
 class RegisterFile:
@@ -285,6 +282,7 @@ class RegisterFile:
         else:
             raise Exception('Register address out of range!')
 
+
 class DataSegment:
     """
     Data Segment of the memory. Starts from the end of the BREAK of the program and until the end of the file.
@@ -313,10 +311,9 @@ class DataSegment:
 
     def mem_read(self, mem_addr: int) -> int:
         return self._table[mem_addr].int_val
-    
+
     def mem_lock(self, mem_addr):
         return self._mem_lock[mem_addr]
-
 
 
 class FunctionalUnitStatus:
@@ -350,11 +347,11 @@ class FunctionalUnitStatus:
 
     def add_entry(self, pip_inst: _PipelineInstEntry):
         success = False
-        if self.avbl():
-            vj, vk, qj, qk = self.decode(pip_inst.inst)
-            self.queue.append(_RSEntry(pip_inst, vj, vk, qj, qk))
-            success = True
-        # end if
+        # if self.avbl():
+        #     vj, vk, qj, qk = self.decode(pip_inst.inst)
+        #     self.queue.append(_FUEntry(pip_inst, vj, vk, qj, qk))
+        #     success = True
+        # # end if
         return success
 
     # def decode(self, inst: Instruction) -> (int, int, _RegisterAllocationUnit, _RegisterAllocationUnit):
