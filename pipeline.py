@@ -1,4 +1,4 @@
-from mips32 import Instruction, InstructionJump, InstructionJumpRegister, InstructionBranchOnEqual, InstructionBranchOnGreaterThanZero, InstructionBranchOnLessThanZero, InstructionStoreWord, InstructionLoadWord, InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical, InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord, InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2, InstructionNoOperation
+from mips32 import Instruction, InstructionJump, InstructionJumpRegister, InstructionBranchOnEqual, InstructionBranchOnGreaterThanZero, InstructionBranchOnLessThanZero, InstructionStoreWord, InstructionLoadWord, InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical, InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord, InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2, InstructionNoOperation, InstructionBreakpoint
 from collections import OrderedDict
 from enum import Enum
 
@@ -61,6 +61,19 @@ class _PipelineInstEntry:
         return inst_type
 
 
+# maintain the register result status table
+# There are only two function unit namely alu and alub
+# thus, register is either allocated in alu or alub
+class _RegisterAllocationUnit:
+    def __init__(self):
+        self.inalu = False
+        self.inalub = False
+
+    def reset(self):
+        self.inalu = False
+        self.inalub = False
+
+
 class Pipeline:
     pc = 64
     cycle = 0
@@ -86,7 +99,12 @@ class Pipeline:
 
     def next_cycle(self):
         self.cycle += 1
-        
+
+        # fetch and decode
+        self.fetch()
+        # issue
+        self.issue()
+
     def snapshotifunit(self):
         desc_str = "IF Unit:\n\tWaiting Instruction: \n"
         desc_str += "\tExecuted Instruction: \n"
@@ -95,11 +113,28 @@ class Pipeline:
     def fetch(self):
         """
         Instruction Fetch unit can fetch and decode at most two instructions at each cycle (in program order). The unit should check all the following conditions before it can fetch further instructions.
-        - If the fetch unit is stalled at the end of previous cycle, no instruction can be fetched at the current cycle. The fetch unit can be stalled due to a branch instruction
-        - If there is no empty slot in the Pre-issue buffer at the end of the previous cycle, no instruction can be fetched at the current cycle.
-        - If there is only one empty slot in the Pre-issue buffer at the end of the previous cycle, only one instruction can be fetched at the current cycle.
+        1. If the fetch unit is stalled at the end of previous cycle, no instruction can be fetched at the current cycle. The fetch unit can be stalled due to a branch instruction
+        2. If there is no empty slot in the Pre-issue buffer at the end of the previous cycle, no instruction can be fetched at the current cycle.
+        3. If there is only one empty slot in the Pre-issue buffer at the end of the previous cycle, only one instruction can be fetched at the current cycle.
         """
-        pass
+
+        for idx in range(2):
+            # check if there is no empty slot in the Pre-issue buffer
+            if self.PreIssue.is_full():
+                break
+            # fetch instruction
+            next_inst_to_fetch = self.inst_mem.get(self.pc, None)
+            pinst = _PipelineInstEntry(next_inst_to_fetch)
+            # decode instruction and put it into Pre-Issue buffer
+            if not isinstance(pinst.inst, (InstructionNoOperation, InstructionBreakpoint)):
+                self.FU.add_entry(pinst)
+                if pinst.get_type() == _InstTypes.BRCH:
+                    # stall the fetch unit
+                    break
+
+        return
+
+        pipline_inst_entry = _PipelineInstEntry(inst)
 
     def issue(self):
         """
@@ -141,24 +176,24 @@ class Pipeline:
 
 
 class _FUEntry:
-    def __init__(self, pip_inst: _PipelineInstEntry, f_i: int = None, f_j: int = None, f_k: int = None, q_j: int = None, q_k: int = None, r_j: int = None, r_k: int = None):
+    def __init__(self, pip_inst: _PipelineInstEntry, f_i: int = None, f_j: int = None, f_k: int = None, q_j: str = "", q_k: str = ""):
         self.pip_inst = pip_inst
         self.idx = pip_inst.issue_cycle
-        self.f_i = f_i   # destinateion register of the intruction in the FU
+        self.f_i = f_i   # destination register of the intruction in the FU
         self.f_j = f_j   # source register of the instruction in the FU
         self.f_k = f_k   # source register of the instruction in the FU
-        self.q_j = q_j   # FU to write new values of source register
-        self.q_k = q_k   # FU to write new values of source register
-        self.r_j = r_j   # if f_j is ready
-        self.r_k = r_k   # if f_k is ready
-        self.exec_locking = False
+        self.q_j = q_j      # FU for the source register j
+        self.q_k = q_k   # FU for the source register k
+        self.r_j = True if q_j == "" else False  # if f_j is ready
+        self.r_k = True if q_k == "" else False # if f_k is ready
+        self.busy = False
 
     def is_ready_for_exec(self) -> bool:
         is_ready = False
         # if self.q_j is None and self.q_k is None and not self.exec_locking:
         #     # if self.q_j is None and self.q_k is None:
         #     is_ready = True
-        if self.r_j and self.r_k and not self.exec_locking:
+        if self.r_j and self.r_k and not self.busy:
             is_ready = True
         return is_ready
 
@@ -221,12 +256,11 @@ class Buffer:
 
     def add_entry(self, entry: _PipelineInstEntry):
         if len(self._table) >= self.size:
-            # if the BTB is full pop the earliest entry and add the new one
             self._table.pop()
         self._table.append(entry)
 
     def pop_entry(self):
-        pass
+        self._table.pop()
 
     def __str__(self):
         desc_str = self._name + " Buffer:\n"
@@ -254,12 +288,16 @@ class Buffer:
 class RegisterFile:
     """
     32 integer registers.
+    including the implemnetation of the register status table
     """
 
     def __init__(self):
         self.size = 32
         self.print_width = 8
         self.R = [0] * self.size
+        self._table_RegisterStatus = []
+        for idx in range(self.size):
+            self._table_RegisterStatus.append(_RegisterAllocationUnit())
 
     def __str__(self):
         desc_str = 'Registers'
@@ -269,6 +307,22 @@ class RegisterFile:
             desc_str += '\t' + str(self.R[idx])
         desc_str += '\n'
         return desc_str
+
+    def record_register_status(self, reg_addr: int, fu: str):
+        if fu == "ALU":
+            self._table_RegisterStatus[reg_addr].inalu = True
+        if fu == "ALUB":
+            self._table_RegisterStatus[reg_addr].inalub = True
+
+    def inalu(self, reg_idx) -> bool:
+        return self._table_RegisterStatus[reg_idx].inalu
+
+    def inalub(self, reg_idx) -> bool:
+        return self._table_RegisterStatus[reg_idx].inalub
+
+    def flush_register_status(self, reg_addr: int):
+        for reg_status in self._table_RegisterStatus:
+            reg_status.reset()
 
     def reg_write(self, reg_addr: int, value: int):
         if reg_addr < 32 and reg_addr >= 0:
@@ -319,45 +373,45 @@ class DataSegment:
 class FunctionalUnitStatus:
     """
     Functional Unit Status Table
+    ALU   non memory instrucitons 
+    ALUB   SLL, SRL, SRA, MUL
     """
 
     def __init__(self, RF: RegisterFile):
-        self.size = 10
+        self.size = 2
         self.queue = []
         self.ref_RF = RF
 
-    def availble(self):
-        avbl = False
-        if len(self.queue) < self.size:
-            avbl = True
-        return avbl
-
     def __str__(self):
-        desc_str = 'RS:\n'
-
+        desc_str = 'Functional Unit Status Table:\n'
         for rs_entry in self.queue:
             desc_str += '[{}]\n'.format(rs_entry.pip_inst.inst.desc_str)
         # end for
         return desc_str
 
-    def flush_from(self, start_point: int):
-        for idx, entry in enumerate(list(self.queue)):
-            if entry.pip_inst.issue_cycle > start_point:
-                self.queue.pop(-1)
+    # def flush_from(self, start_point: int):
+    #     for idx, entry in enumerate(list(self.queue)):
+    #         if entry.pip_inst.issue_cycle > start_point:
+    #             self.queue.pop(-1)
 
     def add_entry(self, pip_inst: _PipelineInstEntry):
         success = False
-        # if self.avbl():
-        #     vj, vk, qj, qk = self.decode(pip_inst.inst)
-        #     self.queue.append(_FUEntry(pip_inst, vj, vk, qj, qk))
-        #     success = True
-        # # end if
+        if self.avbl():
+            dest, s1, s2 = self.decode(pip_inst.inst)
+            qj = "ALU" if self.ref_RF[s1].inalu(
+            ) else "ALUB" if self.ref_RF[s1].inalub() else "None"
+            qk = "ALU" if self.ref_RF[s1].inalu(
+            ) else "ALUB" if self.ref_RF[s1].inalub() else "None"
+            self.queue.append(_FUEntry(pip_inst, dest, s1, s2, qj, qk))
+            success = True
         return success
 
-    # def decode(self, inst: Instruction) -> (int, int, _RegisterAllocationUnit, _RegisterAllocationUnit):
+    def decode(self, inst: Instruction):
+        dest, op1, op2 = None, None, None
+        if isinstance(inst, InstructionAddWord):
 
-    #     # instruction Jump do not require decoding in the RS actually
-    #     return vj, vk, qj, qk
+            # instruction Jump do not require decoding in the FU actually
+        return dest, op1, op2
 
     def next_exec_entry(self) -> _FUEntry:
         next_inst = None
