@@ -1,12 +1,72 @@
-from mips32 import Instruction, InstructionJump, InstructionJumpRegister, InstructionBranchOnEqual, InstructionBranchOnGreaterThanZero, InstructionBranchOnLessThanZero, InstructionStoreWord, InstructionLoadWord, InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical, InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord, InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2, signed_str_to_int
+from mips32 import Instruction, InstructionJump, InstructionJumpRegister, InstructionBranchOnEqual, InstructionBranchOnGreaterThanZero, InstructionBranchOnLessThanZero, InstructionStoreWord, InstructionLoadWord, InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical, InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord, InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2, InstructionNoOperation
 from collections import OrderedDict
+from enum import Enum
+
+
+class _InstTypes(Enum):
+    SL = 1
+    ALU = 2
+    BRCH = 3
+    UKNW = 4
+
+
+class _PipelineInstEntry:
+    def __init__(self, inst: Instruction):
+        """
+        NOP, Branch, BREAK: only IF;
+        SW: IF, Issue, MEM;
+        LW: IF, Issue, MEM, WB;
+        SLL, SRL ,SRA and MUL: IF, Issue, ALUB, WB
+        Other instructions: IF, Issue, ALU, WB.
+        
+        maintain the instruction status table 
+        
+        """
+        self.inst = inst
+        self.pc_val = inst.pc_val
+        self.fetch_cycle = -1
+        self.issue_cycle = -1
+        self.exec_cycle = -1
+        self.wb_cycle = -1
+        self.is_issued = False
+        self.is_wbed = False
+        self.is_execed = False
+
+    # def issue(self, cycle):
+    #     """
+    #     when the instruction being issued, decoding should happened
+    #     :param cycle:
+    #     :return:
+    #     """
+    #     self.issue_cycle = cycle
+    #     self.is_issued = True
+
+    def get_type(self) -> _InstTypes:
+        branch_inst_set = (InstructionJump, InstructionJumpRegister,
+                           InstructionBranchOnEqual,
+                           InstructionBranchOnGreaterThanZero,
+                           InstructionBranchOnLessThanZero)
+        sl_inst_set = (InstructionStoreWord, InstructionLoadWord)
+        alu_inst_set = (InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical, InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord, InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2)
+
+        if isinstance(self.inst, alu_inst_set):
+            inst_type = _InstTypes.ALU
+        elif isinstance(self.inst, sl_inst_set):
+            inst_type = _InstTypes.SL
+        elif isinstance(self.inst, branch_inst_set):
+            inst_type = _InstTypes.BRCH
+        else:
+            inst_type = _InstTypes.UKNW
+        return inst_type
+
+
 
 class Pipeline:
     pc = 64
     cycle = 0
     inst_size = 4
     
-    def __init__(self, instr_mem, data_mem):
+    def __init__(self, inst_mem, data_mem):
         self.IF = "" # to do
         self.PreIssue = Buffer("Pre-Issue", 4)
         self.PreALU = Queue("Pre-ALU", 2)
@@ -27,10 +87,61 @@ class Pipeline:
     
     def next_cycle(self):
         self.cycle += 1
+        
+        
+    def fetch(self):
+        """
+        Instruction Fetch unit can fetch and decode at most two instructions at each cycle (in program order). The unit should check all the following conditions before it can fetch further instructions.
+        - If the fetch unit is stalled at the end of previous cycle, no instruction can be fetched at the current cycle. The fetch unit can be stalled due to a branch instruction
+        - If there is no empty slot in the Pre-issue buffer at the end of the previous cycle, no instruction can be fetched at the current cycle.
+        - If there is only one empty slot in the Pre-issue buffer at the end of the previous cycle, only one instruction can be fetched at the current cycle.
+        """
+        pass
+    
+    
+    def issue(self):
+        """
+        Issue unit follows the basic Scoreboard algorithm to issue instructions. It can issue at most two instruction out-of-order per cycle. When an instruction is issued, it is removed from the Pre-issue Buffer before the end of current cycle. The issue unit searches from entry 0 to entry 3 (in that order) of Pre-issue buffer and issues instructions if:
+        - No structural hazards (the corresponding queue, e.g., Pre-ALU has empty slots at the end of the previous cycle)
+        - No WAW hazards with active instructions (issued but not finished, or earlier not-issued instructions)
+        - No WAR hazards with earlier not-issued instructions
+        - For MEM instructions, all the source registers are ready at the end of the previous cycle
+        - The load instruction must wait until all the previous stores are issued
+        - The stores must be issued in order
+        """
+        pass
+    
+    def alu(self):
+        """
+        The ALU handles the calculation all non-memory instructions except SLL, SRL, SRA and MUL. All the instructions will take one cycle in ALU. In other words, if the Pre-ALU queue is not empty at the end of cycle N, ALU processes the topmost instruction from the Pre-ALU queue in cycle N+1. The topmost instruction is removed from the Pre-ALU queue before the end of cycle N+1. (Therefore the issue unit will see at least one empty slot in Pre-ALU queue in the beginning of cycle N+2.)
+        The processed instruction and its result will be written into the Post-ALU buffer at the end of cycle N+1. Note that this operation will be performed regardless of whether Post-ALU is occupied at the beginning of cycle N+1. In other words, there is no need to check for structural hazard in Post-ALU buffer.
+        """
+        pass
+
+    def alub(self):
+        """
+        The ALUB handles SLL, SRL, SRA and MUL. Due to the hardware complexity, it takes two cycles to process SLL, SRL, SRA and MUL in ALUB. In other words, if the Pre-ALUB queue is not empty at the end of cycle N, ALUB processes the topmost instruction, X, from the Pre-ALU queue in cycle N+1 and N+2. The topmost instruction X is removed from the Pre-ALU queue before the end of cycle N+2. (Therefore the issue unit will see at least one empty slot in Pre-ALU queue in the beginning of cycle N+3.) Please note that X remains the topmost instruction at the end of cycle N+1, while being processed.
+        The processed instruction and its result will be written into the Post-ALUB buffer at the end of cycle N+2. Note that this operation will be performed regardless of whether the Post-ALUB is occupied at the beginning of cycle N+2.
+        """
+        pass
+    
+    def mem(self):
+        """
+        The MEM unit handles LW and SW instructions in Pre-MEM queue. For LW instruction, it takes one cycle to finish. When a LW instruction finishes, the instruction with destination register id and the data will be written to the Post-MEM buffer before the end of cycle. Note that this operation will be performed regardless of whether the Post-MEM is occupied at the beginning of this cycle. For SW instruction, it takes one cycle to write the data to memory. When a SW instruction finishes, nothing would be sent to Post-MEM buffer. When a MEM instruction finishes execution at MEM unit, it is removed from the Pre-MEM queue before the end of cycle.
+        """
+        pass
+
+    def wb(self):
+        """
+        WB unit can execute up to three writebacks in one cycle. It updates the Register File based on the content of Post-ALU Buffer, Post-ALUB Buffer, and Post-MEM Buffer. The update is finished before the end of the cycle. The new value will be available at the beginning of next cycle
+        """
+        pass
+    
+        
 
 
 class _FUEntry:
-    def __init__(self, pip_inst: _PipelineInstEntry, f_i: int = None, f_j:int = None, f_k:int = None, q_j: int = None, q_k: int = None, v_j: int = None, v_k: int = None):
+    def __init__(self, pip_inst: _PipelineInstEntry, f_i: int = None, f_j:int = None, f_k:int = None, q_j: int = None, q_k: int = None, r_j: int = None, r_k: int = None):
         self.pip_inst = pip_inst
         self.idx = pip_inst.issue_cycle
         self.f_i = f_i   # destinateion register of the intruction in the FU
@@ -54,136 +165,93 @@ class _FUEntry:
 
 
 
-class FunctionalUnitStatus:
-    """
-    Functional Unit Status Table
-    """
-
-    def __init__(self, RF: RegisterFile, cbd: Dict[int, int]):
-        self.size = 10
-        self.queue = []
-        self.ref_RF = RF
-        self.ref_cb = cbd
-
-    def avbl(self):
-        avbl = False
-        if len(self.queue) < self.size:
-            avbl = True
-        # end if
-        return avbl
-
-    def __str__(self):
-        desc_str = 'RS:\n'
-
-        for rs_entry in self.queue:
-            desc_str += '[{}]\n'.format(rs_entry.pip_inst.inst.desc_str)
-        # end for
-        return desc_str
-
-    def flush_from(self, start_point: int):
-        for idx, entry in enumerate(list(self.queue)):
-            if entry.pip_inst.issue_cycle > start_point:
-                self.queue.pop(-1)
-
-    def add_entry(self, pip_inst: _PipelineInstEntry):
-        success = False
-        if self.avbl():
-            vj, vk, qj, qk = self.decode(pip_inst.inst)
-            self.queue.append(_RSEntry(pip_inst, vj, vk, qj, qk))
-            success = True
-        # end if
-        return success
-
-    def decode(self, inst: Instruction) -> (int, int, _RegisterAllocationUnit, _RegisterAllocationUnit):
-
-        # instruction Jump do not require decoding in the RS actually
-        return vj, vk, qj, qk
-
-    def next_exec_entry(self) -> _RSEntry:
-        next_inst = None
-        for rs_inst_entry in self.queue:
-            if rs_inst_entry.is_ready_for_exec():
-                next_inst = rs_inst_entry
-                break
-
-        return next_inst
-
-    def receive_wb(self, rob_idx, value):
-        # for idx, rs_entry in enumerate(self.queue):
-        #     if rs_entry.q_j == rob_idx:
-        #         rs_entry.v_j = value
-        #         rs_entry.q_j = None
-        #     if rs_entry.q_k == rob_idx:
-        #         rs_entry.v_k = value
-        #         rs_entry.q_k = None
-
-    def pop_entry(self, rob_idx):
-        for idx in range(len(self.queue)):
-            if self.queue[idx].rob_idx == rob_idx:
-                self.queue.pop(idx)
-                return
-
-
-
-
-
 class Queue:
     """
     queue that follows FIFO used by 
     Pre-ALU, Pre-ALUB, Pre-MEM
     """
     def __init__(self, name: str, size: int):
+        self.entries = []
         self._size = size
         self._name = name
+        
+    def add_entry(self, entry: _PipelineInstEntry):
+        if len(self.entries) < self._size:
+            self.entries.append(entry)
+            return True
+        else:
+            return False
     
+    def pop_entry(self):
+        if len(self.entries) == 0:
+            return False
+        else:
+            self.entries.pop()
+            return True
+                
     def __str__(self):
+        desc_str = self._name + " Queue:"
+        if self._size >= 2:
+            desc_str += "\n"
+        for idx in range(self._size):
+            desc_str += "\tEntry " + str(idx) + ":"
+            if idx < len(self.entries):
+                desc_str += str(self.entries[idx]) + "\n"
+        return desc_str
+
+    def size(self):
+        return len(self.entries)
+
+    def isempty(self):
+        return len(self.entries) == 0
+    
+    def isfull(self):
+        return len(self.entries) == self._size
+    
         
 
 
 class Buffer:
     """
-    queue that follows FIFO used by 
+    Buffer used by 
     Pre-Issue, Post-ALU, Post-ALUB, Post-MEM
     """
     def __init__(self, name: str, size: int):
         self._size = size
         self._name = name
-        self._table = OrderedDict()
+        self._table = []
+        
+    def add_entry(self, entry: _PipelineInstEntry):
+        if len(self._table) >= self.size:
+            # if the BTB is full pop the earliest entry and add the new one
+            self._table.pop()
+        self._table.append(entry)
+
+    def pop_entry(self):
+        pass
 
     def __str__(self):
         desc_str = self._name + " Buffer:"
-        if self._size == 0:
-            desc_str += 
+        if self._size == 1:
+            desc_str += str(self._table[0]) + "\n"
+        if self._size >= 2:
+            desc_str += "\n"
+            for idx in range(self._size):
+                desc_str += "\tEntry " + str(idx) + ":"
+                if idx < len(self._table):
+                    desc_str += str(self._table[idx]) + "\n"
+        return desc_str
+    
+    def size(self):
+        return len(self._table)
+
+    def isempty(self):
+        return len(self._table) == 0
+    
+    def isfull(self):
+        return len(self._table) == self._size
             
-    def add_entry(self, current_pc: int, target_pc: int, taken=True):
-        if len(self._table) >= self.size:
-            # if the BTB is full pop the earliest entry and add the new one
-            self._table.popitem(last=False)
-        self._table[current_pc] = _BTBEntry(current_pc, target_pc, taken)
-
-    def update_mispredict(self, current_pc: int):
-        entry = self._table.get(current_pc)
-        entry.taken = not entry.taken
-
-    def update_entry(self, current_pc: int, target_pc: int, taken=True):
-        _, target, _ = self.lookup_entry(current_pc)
-        if target is None:
-            # not exists, insert
-            self.add_entry(current_pc, target_pc, taken)
-        else:
-            self._table[current_pc].taken = taken
-
-    def list_entries(self):
-        return self._table.keys()
-
-    def lookup_entry(self, pc_val: int) -> (int, int, bool):
-        entry = self._table.get(pc_val)
-
-        if entry is None:
-            return None, None, False
-        else:
-            return entry.current_pc, entry.target_pc, entry.taken    
-
+       
 
 
 class RegisterFile:
@@ -217,9 +285,6 @@ class RegisterFile:
         else:
             raise Exception('Register address out of range!')
 
-
-
-
 class DataSegment:
     """
     Data Segment of the memory. Starts from the end of the BREAK of the program and until the end of the file.
@@ -251,3 +316,73 @@ class DataSegment:
     
     def mem_lock(self, mem_addr):
         return self._mem_lock[mem_addr]
+
+
+
+class FunctionalUnitStatus:
+    """
+    Functional Unit Status Table
+    """
+
+    def __init__(self, RF: RegisterFile):
+        self.size = 10
+        self.queue = []
+        self.ref_RF = RF
+
+    def availble(self):
+        avbl = False
+        if len(self.queue) < self.size:
+            avbl = True
+        return avbl
+
+    def __str__(self):
+        desc_str = 'RS:\n'
+
+        for rs_entry in self.queue:
+            desc_str += '[{}]\n'.format(rs_entry.pip_inst.inst.desc_str)
+        # end for
+        return desc_str
+
+    def flush_from(self, start_point: int):
+        for idx, entry in enumerate(list(self.queue)):
+            if entry.pip_inst.issue_cycle > start_point:
+                self.queue.pop(-1)
+
+    def add_entry(self, pip_inst: _PipelineInstEntry):
+        success = False
+        if self.avbl():
+            vj, vk, qj, qk = self.decode(pip_inst.inst)
+            self.queue.append(_RSEntry(pip_inst, vj, vk, qj, qk))
+            success = True
+        # end if
+        return success
+
+    # def decode(self, inst: Instruction) -> (int, int, _RegisterAllocationUnit, _RegisterAllocationUnit):
+
+    #     # instruction Jump do not require decoding in the RS actually
+    #     return vj, vk, qj, qk
+
+    def next_exec_entry(self) -> _FUEntry:
+        next_inst = None
+        for rs_inst_entry in self.queue:
+            if rs_inst_entry.is_ready_for_exec():
+                next_inst = rs_inst_entry
+                break
+
+        return next_inst
+
+    def receive_wb(self, rob_idx, value):
+        # for idx, rs_entry in enumerate(self.queue):
+        #     if rs_entry.q_j == rob_idx:
+        #         rs_entry.v_j = value
+        #         rs_entry.q_j = None
+        #     if rs_entry.q_k == rob_idx:
+        #         rs_entry.v_k = value
+        #         rs_entry.q_k = None
+        pass
+
+    def pop_entry(self, rob_idx):
+        for idx in range(len(self.queue)):
+            if self.queue[idx].rob_idx == rob_idx:
+                self.queue.pop(idx)
+                return
