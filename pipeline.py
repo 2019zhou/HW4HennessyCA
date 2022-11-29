@@ -1,4 +1,4 @@
-from mips32 import Instruction, InstructionJump, InstructionJumpRegister, InstructionBranchOnEqual, InstructionBranchOnGreaterThanZero, InstructionBranchOnLessThanZero, InstructionStoreWord, InstructionLoadWord, InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical, InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord, InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2, InstructionNoOperation, InstructionBreakpoint
+from mips32 import Instruction, InstructionJump, InstructionJumpRegister, InstructionBranchOnEqual, InstructionBranchOnGreaterThanZero, InstructionBranchOnLessThanZero, InstructionStoreWord, InstructionLoadWord, InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical, InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord, InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2, InstructionNoOperation, InstructionBreakpoint, signed_str_to_int
 from collections import OrderedDict
 from enum import Enum
 
@@ -47,8 +47,11 @@ class _PipelineInstEntry:
                            InstructionBranchOnGreaterThanZero,
                            InstructionBranchOnLessThanZero)
         sl_inst_set = (InstructionStoreWord, InstructionLoadWord)
-        alu_inst_set = (InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical, InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord,
-                        InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2)
+        alu_inst_set = (InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical, 
+                        InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord,
+                        InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan)
+        
+        # to do add support for category 2 instructions
 
         if isinstance(self.inst, alu_inst_set):
             inst_type = _InstTypes.ALU
@@ -80,6 +83,7 @@ class Pipeline:
     inst_size = 4
 
     def __init__(self, inst_mem, data_mem):
+        self.IFUnit = [""]*2   # 0 for executed instruction, 1 for waiting instruction
         self.PreIssue = Buffer("Pre-Issue", 4)
         self.PreALU = Queue("Pre-ALU", 2)
         self.PostALU = Buffer("Post-ALU", 1)
@@ -100,14 +104,19 @@ class Pipeline:
     def next_cycle(self):
         self.cycle += 1
 
+        if self.is_over:
+            return
+        
         # fetch and decode
         self.fetch()
         # issue
         self.issue()
+        
+        
 
     def snapshotifunit(self):
-        desc_str = "IF Unit:\n\tWaiting Instruction: \n"
-        desc_str += "\tExecuted Instruction: \n"
+        desc_str = 'IF Unit:\n\tWaiting Instruction: {}\n'.format(self.IFUnit[1])
+        desc_str += "\tExecuted Instruction: {}\n".format(self.IFUnit[0])
         return desc_str
 
     def fetch(self):
@@ -119,22 +128,53 @@ class Pipeline:
         """
 
         for idx in range(2):
-            # check if there is no empty slot in the Pre-issue buffer
+            # 2. check if there is no empty slot in the Pre-issue buffer
             if self.PreIssue.is_full():
                 break
             # fetch instruction
             next_inst_to_fetch = self.inst_mem.get(self.pc, None)
             pinst = _PipelineInstEntry(next_inst_to_fetch)
             # decode instruction and put it into Pre-Issue buffer
-            if not isinstance(pinst.inst, (InstructionNoOperation, InstructionBreakpoint)):
+            if pinst.get_type() == _InstTypes.ALU or pinst.get_type() == _InstTypes.SL:
+                # when add entry the ALU and SL, they are also decoded
                 self.FU.add_entry(pinst)
-                if pinst.get_type() == _InstTypes.BRCH:
-                    # stall the fetch unit
-                    break
-
+                self.PreIssue.add_entry(pinst)
+            elif pinst.get_type() == _InstTypes.BRCH:
+                inst = next_inst_to_fetch
+                if isinstance(pinst, InstructionJump):
+                    self.next_pc = inst.dest
+                # check whether the register are ready
+                Ready = False
+                if isinstance(pinst, InstructionJumpRegister):
+                    if self.RF.is_ready(inst.op1_val):
+                        self.next_pc = self.RF.reg_read(inst.op1_val)
+                        Ready = True
+                elif isinstance(pinst, InstructionBranchOnEqual):
+                    if self.RF.is_ready(inst.op1_val) and self.RF.is_ready(inst.op2_val):
+                        if self.RF.reg_read(inst.op1_val) == self.RF.reg_read(inst.op2_val):
+                            self.next_pc = self.pc + inst.dest + 4
+                        Ready = True
+                elif isinstance(pinst, InstructionBranchOnGreaterThanZero):
+                    if self.RF.is_ready(inst.op1_val):
+                        if self.RF.reg_read(inst.op1_val) > 0:
+                            self.next_pc = self.pc + signed_str_to_int(inst.offset + "00") + 4
+                        Ready = True
+                elif isinstance(pinst, InstructionBranchOnLessThanZero):
+                    if self.RF.is_ready(inst.op1_val):
+                        if self.RF.reg_read(inst.op1_val) > 0:
+                            self.next_pc = self.pc + signed_str_to_int(inst.offset + "00") + 4
+                        Ready = True
+                # means it has been executed
+                if Ready:
+                    self.IFUnit[0] = str(inst.desc_str)
+                else:
+                    self.IFUnit[1] = str(inst.desc_str)
+            elif isinstance(next_inst_to_fetch, InstructionBreakpoint):
+                self.is_over = True
+                break
+            elif isinstance(next_inst_to_fetch, InstructionNoOperation):
+                self.next_pc = self.pc + 4
         return
-
-        pipline_inst_entry = _PipelineInstEntry(inst)
 
     def issue(self):
         """
@@ -185,7 +225,7 @@ class _FUEntry:
         self.q_j = q_j      # FU for the source register j
         self.q_k = q_k   # FU for the source register k
         self.r_j = True if q_j == "" else False  # if f_j is ready
-        self.r_k = True if q_k == "" else False # if f_k is ready
+        self.r_k = True if q_k == "" else False  # if f_k is ready
         self.busy = False
 
     def is_ready_for_exec(self) -> bool:
@@ -307,18 +347,21 @@ class RegisterFile:
             desc_str += '\t' + str(self.R[idx])
         desc_str += '\n'
         return desc_str
-
+    
     def record_register_status(self, reg_addr: int, fu: str):
         if fu == "ALU":
             self._table_RegisterStatus[reg_addr].inalu = True
         if fu == "ALUB":
             self._table_RegisterStatus[reg_addr].inalub = True
+    
+    def is_ready(self, reg_addr: int) -> bool:
+        return self._table_RegisterStatus[reg_addr].inalu == False and self._table_RegisterStatus[reg_addr].inalub == False
 
-    def inalu(self, reg_idx) -> bool:
-        return self._table_RegisterStatus[reg_idx].inalu
+    def inalu(self, reg_addr) -> bool:
+        return self._table_RegisterStatus[reg_addr].inalu
 
-    def inalub(self, reg_idx) -> bool:
-        return self._table_RegisterStatus[reg_idx].inalub
+    def inalub(self, reg_addr) -> bool:
+        return self._table_RegisterStatus[reg_addr].inalub
 
     def flush_register_status(self, reg_addr: int):
         for reg_status in self._table_RegisterStatus:
@@ -394,23 +437,30 @@ class FunctionalUnitStatus:
     #         if entry.pip_inst.issue_cycle > start_point:
     #             self.queue.pop(-1)
 
-    def add_entry(self, pip_inst: _PipelineInstEntry):
+    def add_entry(self, pinst: _PipelineInstEntry):
         success = False
-        if self.avbl():
-            dest, s1, s2 = self.decode(pip_inst.inst)
+        # todo： check if the functional unit is available
+        dest, s1, s2 = self.decode(pinst)
+        if pinst.get_type() == _InstTypes.ALU:
             qj = "ALU" if self.ref_RF[s1].inalu(
             ) else "ALUB" if self.ref_RF[s1].inalub() else "None"
             qk = "ALU" if self.ref_RF[s1].inalu(
             ) else "ALUB" if self.ref_RF[s1].inalub() else "None"
-            self.queue.append(_FUEntry(pip_inst, dest, s1, s2, qj, qk))
+            self.queue.append(_FUEntry(pinst.inst, dest, s1, s2, qj, qk))
             success = True
+        elif pinst.get_type() == _InstTypes.SL:
+            pass
         return success
 
-    def decode(self, inst: Instruction):
+    # only decode the ALU and SL instructions
+    def decode(self, pinst: _PipelineInstEntry):
+        inst = pinst.inst
         dest, op1, op2 = None, None, None
-        if isinstance(inst, InstructionAddWord):
-
-            # instruction Jump do not require decoding in the FU actually
+        if pinst.get_type() == _InstTypes.ALU or pinst.get_type() == _InstTypes.SL:
+            # for SL, op1 means offset, op2 means base
+            dest = inst.dest
+            op1 = inst.op1_val
+            op2 = inst.op2_val
         return dest, op1, op2
 
     def next_exec_entry(self) -> _FUEntry:

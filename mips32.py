@@ -179,6 +179,9 @@ class InstructionTypeI(Instruction):
         self.register_t = self.instr_str[11:16]
         self.offset = self.instr_str[16:32]
         self.target = self.offset
+        
+        self.op1_val = int(self.register_s, 2)
+        self.op2_val = int(self.register_t, 2)
 
         if self.opcode == '000001':
             self.instr_code = InstructionTypeI._InstSet['INSTR_' +
