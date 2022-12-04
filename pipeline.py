@@ -26,13 +26,15 @@ class _PipelineInstEntry:
         self.inst = inst
         self.pc_val = inst.pc_val
         self.exec_cycle = 0
+        self.dest = inst.dest
+        self.result = None
 
-        self.fetch_cycle = -1
-        self.issue_cycle = -1
-        self.wb_cycle = -1
-        self.is_issued = False
-        self.is_wbed = False
-        self.is_execed = False
+        # self.fetch_cycle = -1
+        # self.issue_cycle = -1
+        # self.wb_cycle = -1
+        # self.is_issued = False
+        # self.is_wbed = False
+        # self.is_execed = False
 
     # def issue(self, cycle):
     #     """
@@ -250,6 +252,10 @@ class Pipeline:
         pinst = self.PreALU.get(0)
         if self.FU.alu is not None and self.FU.alu.is_ready_for_exec():
             self.PreALU.pop_entry(0)
+            
+            # calc the pinst.result 
+            
+            
             self.PostALU.add_entry(pinst)
 
     def alub(self):
@@ -263,6 +269,8 @@ class Pipeline:
         if self.FU.alub is not None and self.FU.alub.is_ready_for_exec():
             pinst.exec_cycle += 1
             if pinst.exec_cycle >= 2:
+                # calc the pinst.result
+                
                 self.PreALUB.pop_entry(0)
                 self.PostALUB.add_entry(pinst)
                 pinst.exec_cycle = -1
@@ -277,7 +285,39 @@ class Pipeline:
         """
         WB unit can execute up to three writebacks in one cycle. It updates the Register File based on the content of Post-ALU Buffer, Post-ALUB Buffer, and Post-MEM Buffer. The update is finished before the end of the cycle. The new value will be available at the beginning of next cycle
         """
-        
+        # based on the PostALU buffer
+        if not self.PostALU.isempty():
+            if (self.FU.alu.f_i != self.FU.alub.f_j or self.FU.alub.r_j == False) and (self.FU.alu.f_i != self.FU.alub.f_k or self.FU.alub.r_k == False):
+                pinst = self.PostALU.get(0)
+                self.PostALU.pop_entry(0)
+                self.FU.alu_busy = False
+                self.RF.reg_write(pinst.dest, pinst.result)
+                
+                if self.FU.alub.q_j == "ALU":
+                    self.FU.alub.r_j = True
+                if self.FU.alub.q_k == "ALU":
+                    self.FU.alub.r_k = True
+                
+                self.RF.flush_register_status(pinst.dest)
+                pinst.result = None
+        # based on the PostALUB buffer
+        if not self.PostALUB.isempty():
+            if (self.FU.alub.f_i != self.FU.alu.f_j or self.FU.alu.r_j == False) and (self.FU.alub.f_i != self.FU.alu.f_k or self.FU.alu.r_k == False):
+                pinst = self.PostALUB.get(0)
+                self.PostALUB.pop_entry(0)
+                self.FU.alub_busy = False
+                self.RF.reg_write(pinst.dest, pinst.result)
+                
+                if self.FU.alu.q_j == "ALUB":
+                    self.FU.alu.r_j = True
+                if self.FU.alu.q_k == "ALUB":
+                    self.FU.alu.r_k = True
+                
+                self.RF.flush_register_status(pinst.dest)
+                pinst.result = None
+        # based on the PostMEM buffer
+        if not self.PostMEM.isempty():
+            pass
 
 
 class _FUEntry:
