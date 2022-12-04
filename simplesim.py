@@ -144,3 +144,6 @@ class DataSegment:
 
     def mem_read(self, mem_addr: int) -> int:
         return self._table[mem_addr].int_val
+
+
+## todo rename to 16bit_str --> 32bit__str
