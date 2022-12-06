@@ -68,7 +68,6 @@ class _RegisterAllocationUnit:
 
 
 class Pipeline:
-    pc = 64
     cycle = 0
     inst_size = 4
 
@@ -89,7 +88,7 @@ class Pipeline:
 
         self.FU = FunctionalUnitStatus(self.RF)
 
-        self.next_pc = self.pc
+        self.pc = 64
         self.is_over = False
 
     def next_cycle(self):
@@ -187,6 +186,7 @@ class Pipeline:
             elif isinstance(next_inst_to_fetch, InstructionBreakpoint):
                 self.is_over = True
                 break
+            self.pc = self.next_pc
         return
 
     def issue(self):
@@ -248,7 +248,7 @@ class Pipeline:
         self.PreALU.set_idx()
         pinst = self.PreALU.next_entry()
         
-        if self.FU.alu is not None and self.FU.alu.is_ready_for_exec():
+        if self.FU.alu is not None and self.FU.alu.is_ready_for_exec() and pinst is not None:
             self.PreALU.pop_entry(0)
             inst = pinst.inst
             # calc the pinst.result
@@ -285,8 +285,10 @@ class Pipeline:
         """
         if self.PreALUB.isempty():
             return
-        pinst = self.PreALUB.get(0)
-        if self.FU.alub is not None and self.FU.alub.is_ready_for_exec():
+        self.PreALUB.set_idx()
+        pinst = self.PreALUB.next_entry()
+
+        if self.FU.alub is not None and self.FU.alub.is_ready_for_exec() and pinst is not None:
             pinst.exec_cycle += 1
             if pinst.exec_cycle >= 2:
                 # calc the pinst.result
@@ -317,19 +319,23 @@ class Pipeline:
         """
         The MEM unit handles LW and SW instructions in Pre-MEM queue. For LW instruction, it takes one cycle to finish. When a LW instruction finishes, the instruction with destination register id and the data will be written to the Post-MEM buffer before the end of cycle. Note that this operation will be performed regardless of whether the Post-MEM is occupied at the beginning of this cycle. For SW instruction, it takes one cycle to write the data to memory. When a SW instruction finishes, nothing would be sent to Post-MEM buffer. When a MEM instruction finishes execution at MEM unit, it is removed from the Pre-MEM queue before the end of cycle.
         """
-        sz = self.PreMEM.size()
+        if self.PreMEM.isempty():
+            return
+        self.PreMEM.set_idx()
 
-        for idx in range(sz):
-            pinst = self.PreMEM.get(idx)
+        while True:
+            pinst = self.PreMEM.next_entry()
+            if pinst == None:
+                break
             inst = pinst.inst
             if isinstance(inst, InstructionLoadWord):
-                self.PreMEM.pop_entry(idx)
+                self.PreMEM.pop_entry()
                 # calc the pinst.result
                 pinst.result = self.DS.mem_read(
                     inst.op1_val + self.RF.reg_read(inst.op2_val))
                 self.PostMEM.add_entry(pinst)
             elif isinstance(inst, InstructionStoreWord):
-                self.PreMEM.pop_entry(idx)
+                self.PreMEM.pop_entry()
                 self.DS.mem_write(self.RF.reg_read(
                     inst.op2_val) + inst.op1_val, inst.dest)
 
@@ -355,8 +361,8 @@ class Pipeline:
         # based on the PostALUB buffer
         if not self.PostALUB.isempty():
             if (self.FU.alub.f_i != self.FU.alu.f_j or self.FU.alu.r_j == False) and (self.FU.alub.f_i != self.FU.alu.f_k or self.FU.alu.r_k == False):
-                pinst = self.PostALUB.get(0)
-                self.PostALUB.pop_entry(0)
+                pinst = self.PostALUB.get()
+                self.PostALUB.pop_entry()
                 self.FU.alub_busy = False
                 self.RF.reg_write(pinst.dest, pinst.result)
 
@@ -429,7 +435,7 @@ class Queue:
         for idx in range(self._size):
             desc_str += "\tEntry " + str(idx) + ":"
             if idx < len(self.entries):
-                desc_str += str(self.entries[idx].inst) + "\n"
+                desc_str += "[" + str(self.entries[idx].inst.desc_str) + "]\n"
             else:
                 desc_str += "\n"
         return desc_str
@@ -486,27 +492,27 @@ class Buffer:
     def update(self):
         self._table = self._comingtable
 
-    def pop_entry(self, idx=0):
-        if idx < len(self._comingtable):
-            del (self._comingtable[idx])
+    def pop_entry(self):
+        if self.idx < len(self._comingtable):
+            del (self._comingtable[self.idx])
             return True
         return False
 
     def get(self, idx):
         if idx < len(self._table):
-            self.idx += 1
             return self._table[idx]
 
     def __str__(self):
-        desc_str = self._name + " Buffer:\n"
-        if len(self._table) == 1:
-            desc_str += str(self._table[0]) + "\n"
+        desc_str = self._name + " Buffer:"
+        if self._size == 1 and len(self._table):
+            desc_str += "[" + str(self._table[0].inst.desc_str) + "]\n"
+        else:
+            desc_str += "\n"
         if self._size >= 2:
             for idx in range(self._size):
                 desc_str += "\tEntry " + str(idx) + ":"
                 if idx < len(self._table):
-                    
-                    desc_str += str(self._table[idx].inst) + "\n"
+                    desc_str += "[" + str(self._table[idx].inst.desc_str) + "]\n"
                 else:
                     desc_str += "\n"
         return desc_str
@@ -670,7 +676,7 @@ class FunctionalUnitStatus:
             
             success = True
         elif pinst.get_type() == _InstTypes.ALUB:
-            if self.alub_busy or self.ref_RF.isready(dest) == False:
+            if self.alub_busy or self.ref_RF.is_ready(dest) == False:
                 return success
             self.alu_busy = True
             qj = "ALU" if self.ref_RF.inalu(s1) else "ALUB" if self.ref_RF.inalub(s1) else ""
