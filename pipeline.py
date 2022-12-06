@@ -15,16 +15,6 @@ class _InstTypes(Enum):
 
 class _PipelineInstEntry:
     def __init__(self, inst: Instruction):
-        """
-        NOP, Branch, BREAK: only IF;
-        SW: IF, Issue, MEM;
-        LW: IF, Issue, MEM, WB;
-        SLL, SRL ,SRA and MUL: IF, Issue, ALUB, WB
-        Other instructions: IF, Issue, ALU, WB.
-
-        maintain the instruction status table 
-
-        """
         self.inst = inst
         self.pc_val = inst.pc_val
         self.exec_cycle = 0
@@ -130,7 +120,6 @@ class Pipeline:
         self.PostALUB.update()
         self.PreMEM.update()
         self.PostMEM.update()
-        self.pc = self.next_pc
 
     def snapshotifunit(self):
         desc_str = 'IF Unit:\n\tWaiting Instruction: {}\n'.format(
@@ -212,28 +201,29 @@ class Pipeline:
         """
         IssueNum = 0
         MaxIssueNum = 2
-        sz = self.PreIssue.size()
-
         LWSeq = True
+        self.PreIssue.set_idx()
 
-        for idx in range(sz):
+        while True:
             if IssueNum >= MaxIssueNum:
                 break
-            pinst = self.PreIssue.get(idx)
+            pinst = self.PreIssue.next_entry()
+            if pinst == None:
+                break
             if pinst.get_type() == _InstTypes.ALUB:
                 if self.PreALUB.isfull():
                     continue
                 elif self.FU.add_entry(pinst):
                     IssueNum += 1
                     self.PreALUB.add_entry(pinst)
-                    self.PreIssue.pop_entry(idx)
+                    self.PreIssue.pop_entry()
             elif pinst.get_type() == _InstTypes.ALU:
                 if self.PreALU.isfull():
                     continue
                 elif self.FU.add_entry(pinst):
                     IssueNum += 1
                     self.PreALU.add_entry(pinst)
-                    self.PreIssue.pop_entry(idx)
+                    self.PreIssue.pop_entry()
             elif pinst.get_type() == _InstTypes.SL:
                 inst = pinst.inst
                 if LWSeq:
@@ -253,9 +243,11 @@ class Pipeline:
         The ALU handles the calculation all non-memory instructions except SLL, SRL, SRA and MUL. All the instructions will take one cycle in ALU. In other words, if the Pre-ALU queue is not empty at the end of cycle N, ALU processes the topmost instruction from the Pre-ALU queue in cycle N+1. The topmost instruction is removed from the Pre-ALU queue before the end of cycle N+1. (Therefore the issue unit will see at least one empty slot in Pre-ALU queue in the beginning of cycle N+2.)
         The processed instruction and its result will be written into the Post-ALU buffer at the end of cycle N+1. Note that this operation will be performed regardless of whether Post-ALU is occupied at the beginning of cycle N+1. In other words, there is no need to check for structural hazard in Post-ALU buffer.
         """
-        if self.PreALU.is_empty():
+        if self.PreALU.isempty():
             return
-        pinst = self.PreALU.get(0)
+        self.PreALU.set_idx()
+        pinst = self.PreALU.next_entry()
+        
         if self.FU.alu is not None and self.FU.alu.is_ready_for_exec():
             self.PreALU.pop_entry(0)
             inst = pinst.inst
@@ -291,7 +283,7 @@ class Pipeline:
         The ALUB handles SLL, SRL, SRA and MUL. Due to the hardware complexity, it takes two cycles to process SLL, SRL, SRA and MUL in ALUB. In other words, if the Pre-ALUB queue is not empty at the end of cycle N, ALUB processes the topmost instruction, X, from the Pre-ALU queue in cycle N+1 and N+2. The topmost instruction X is removed from the Pre-ALU queue before the end of cycle N+2. (Therefore the issue unit will see at least one empty slot in Pre-ALU queue in the beginning of cycle N+3.) Please note that X remains the topmost instruction at the end of cycle N+1, while being processed.
         The processed instruction and its result will be written into the Post-ALUB buffer at the end of cycle N+2. Note that this operation will be performed regardless of whether the Post-ALUB is occupied at the beginning of cycle N+2.
         """
-        if self.PreALUB.is_empty():
+        if self.PreALUB.isempty():
             return
         pinst = self.PreALUB.get(0)
         if self.FU.alub is not None and self.FU.alub.is_ready_for_exec():
@@ -384,7 +376,6 @@ class Pipeline:
 class _FUEntry:
     def __init__(self, pip_inst: _PipelineInstEntry, f_i: int = None, f_j: int = None, f_k: int = None, q_j: str = "", q_k: str = ""):
         self.pip_inst = pip_inst
-        self.idx = pip_inst.issue_cycle
         self.f_i = f_i   # destination register of the intruction in the FU
         self.f_j = f_j   # source register of the instruction in the FU
         self.f_k = f_k   # source register of the instruction in the FU
@@ -414,6 +405,7 @@ class Queue:
         self.entries = []
         self._size = size
         self._name = name
+        self.idx = 0
 
     def update(self):
         self.entries = self.comingentries
@@ -437,15 +429,15 @@ class Queue:
         for idx in range(self._size):
             desc_str += "\tEntry " + str(idx) + ":"
             if idx < len(self.entries):
-                desc_str += str(self.entries[idx]) + "\n"
+                desc_str += str(self.entries[idx].inst) + "\n"
             else:
                 desc_str += "\n"
         return desc_str
+    
+    def set_idx(self, idx = 0):
+        self.idx = idx
 
     # __ means checking the last cycle entries
-    def get(self, idx):
-        if idx < len(self.entries):
-            return self.entries[idx]
 
     def size(self):
         return len(self.entries)
@@ -456,9 +448,10 @@ class Queue:
     def isfull(self):
         return len(self.entries) == self._size
 
-    def sync_get(self, idx):
-        if idx < len(self.comingentries):
-            return self.comingentries[idx]
+    def next_entry(self):
+        if self.idx < len(self.comingentries):
+            self.idx += 1
+            return self.comingentries[self.idx - 1]
 
     def sync_size(self):
         return len(self.comingentries)
@@ -481,10 +474,11 @@ class Buffer:
         self._name = name
         self._table = []
         self._comingtable = []
+        self.idx = 0
 
     def add_entry(self, entry: _PipelineInstEntry):
-        if len(self.comingentries) < self._size:
-            self.comingentries.append(entry)
+        if len(self._comingtable) < self._size:
+            self._comingtable.append(entry)
             return True
         else:
             return False
@@ -493,16 +487,15 @@ class Buffer:
         self._table = self._comingtable
 
     def pop_entry(self, idx=0):
-        if len(self.entries) == 0:
-            return False
-        else:
-            del (self.comingentries[idx])
+        if idx < len(self._comingtable):
+            del (self._comingtable[idx])
             return True
+        return False
 
     def get(self, idx):
         if idx < len(self._table):
+            self.idx += 1
             return self._table[idx]
-        return None
 
     def __str__(self):
         desc_str = self._name + " Buffer:\n"
@@ -512,13 +505,19 @@ class Buffer:
             for idx in range(self._size):
                 desc_str += "\tEntry " + str(idx) + ":"
                 if idx < len(self._table):
-                    desc_str += str(self._table[idx]) + "\n"
+                    
+                    desc_str += str(self._table[idx].inst) + "\n"
                 else:
                     desc_str += "\n"
         return desc_str
 
-    def sync_get(self, idx):
-        return len(self._comingtable[idx])
+    def set_idx(self, idx = 0):
+        self.idx = idx
+    
+    def next_entry(self):
+        if self.idx < len(self._comingtable):
+            self.idx += 1
+            return self._comingtable[self.idx - 1]
 
     def sync_size(self):
         return len(self._comingtable)
@@ -529,8 +528,9 @@ class Buffer:
     def sync_isfull(self):
         return len(self._comingtable) == self._size
 
-    def get(self, idx):
-        return len(self._table[idx])
+    def get(self):
+        if self.idx < len(self._table):
+            return self._table[self.idx]
 
     def size(self):
         return len(self._table)
@@ -658,13 +658,12 @@ class FunctionalUnitStatus:
         qj, qk = "", ""
         if pinst.get_type() == _InstTypes.ALU:
             # not busy and not result D
-            if self.alu_busy or self.ref_RF.isready(dest) == False:
+            if self.alu_busy or self.ref_RF.is_ready(dest) == False:
                 return success
             self.alu_busy = True
-            qj = "ALU" if self.ref_RF[s1].inalu() else "ALUB" if self.ref_RF[s1].inalub() else "None"
+            qj = "ALU" if self.ref_RF.inalu(s1) else "ALUB" if self.ref_RF.inalub(s1) else "None"
             if pinst.inst.type != Instruction._Types.type_2:
-                qk = "ALU" if self.ref_RF[s2].inalu(
-                ) else "ALUB" if self.ref_RF[s2].inalub() else "None"
+                qk = "ALU" if self.ref_RF.inalu(s1) else "ALUB" if self.ref_RF.inalub(s2) else "None"
             self.alu = _FUEntry(pinst, dest, s1, s2, qj, qk)
             # Result D  = dest
             self.ref_RF.record_register_status(dest, "ALU")
@@ -674,11 +673,9 @@ class FunctionalUnitStatus:
             if self.alub_busy or self.ref_RF.isready(dest) == False:
                 return success
             self.alu_busy = True
-            qj = "ALU" if self.ref_RF[s1].inalu(
-            ) else "ALUB" if self.ref_RF[s1].inalub() else ""
+            qj = "ALU" if self.ref_RF.inalu(s1) else "ALUB" if self.ref_RF.inalub(s1) else ""
             if isinstance(pinst.inst, InstructionMulWord):
-                qk = "ALU" if self.ref_RF[s2].inalu(
-                ) else "ALUB" if self.ref_RF[s2].inalub() else ""
+                qk = "ALU" if self.ref_RF.inalu(s2) else "ALUB" if self.ref_RF.inalub(s2) else ""
             self.alub = _FUEntry(pinst, dest, s1, s2, qj, qk)
             # Result D  = dest
             self.ref_RF.record_register_status(dest, "ALUB")
