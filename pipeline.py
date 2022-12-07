@@ -99,16 +99,17 @@ class Pipeline:
 
         # fetch and decode
         self.fetch()
-        # issue
+        
+        # # issue
         self.issue()
-        # alu
-        self.alu()
-        # alub
-        self.alub()
-        # mem
-        self.mem()
-        # wb
-        self.wb()
+        # # alu
+        # self.alu()
+        # # alub
+        # self.alub()
+        # # mem
+        # self.mem()
+        # # wb
+        # self.wb()
 
         # all the buffer and the queue updated
         # to simulation the parallism
@@ -119,6 +120,15 @@ class Pipeline:
         self.PostALUB.update()
         self.PreMEM.update()
         self.PostMEM.update()
+        # self.snapshotall()
+        
+    def snapshotall(self):
+        print("for debug only")
+        write_buf = '--------------------\nCycle:{}\n\n{}{}{}{}{}{}{}{}\n{}\n{}'.format(
+                self.cycle, self.snapshotifunit(), str(self.PreIssue), str(self.PreALU), str(self.PostALU), 
+                str(self.PreALUB), str(self.PostALUB), str(self.PreMEM), str(self.PostMEM), str(self.RF), str(self.DS))
+        print(str(write_buf))
+        print("for debug only")
 
     def snapshotifunit(self):
         desc_str = 'IF Unit:\n\tWaiting Instruction: {}\n'.format(
@@ -134,10 +144,11 @@ class Pipeline:
         3. If there is only one empty slot in the Pre-issue buffer at the end of the previous cycle, only one instruction can be fetched at the current cycle.
         """
         FetchNum = 0
-        MaxIssueNum = 2
+        MaxFetchNum = 2
+        self.PreIssue.copy()
         while True:
             # 1. decode at most two instructions at each cycle
-            if FetchNum >= MaxIssueNum:
+            if FetchNum >= MaxFetchNum:
                 break
             # 2. check if there is no empty slot in the Pre-issue buffer
             if self.PreIssue.sync_isfull():
@@ -203,13 +214,18 @@ class Pipeline:
         MaxIssueNum = 2
         LWSeq = True
         self.PreIssue.set_idx()
+        self.PreALUB.copy()
+        self.PreALU.copy()
+        self.PreMEM.copy()
 
         while True:
             if IssueNum >= MaxIssueNum:
                 break
             pinst = self.PreIssue.next_entry()
-            if pinst == None:
+            print(self.PreIssue)
+            if pinst is None:
                 break
+            self.PreIssue.add_entry(pinst)
             if pinst.get_type() == _InstTypes.ALUB:
                 if self.PreALUB.isfull():
                     continue
@@ -234,9 +250,16 @@ class Pipeline:
                     if self.RF.is_ready(inst.dest) and self.RF.is_ready(inst.op2_val):
                         IssueNum += 1
                         self.PreMEM.add_entry(pinst)
-                        self.PreIssue.pop_entry(idx)
+                        self.PreIssue.pop_entry()
                     elif not isinstance(pinst.inst, InstructionLoadWord):
                         LWSeq = False
+            
+        while True:            
+            pinst = self.PreIssue.next_entry()
+            if pinst is None:
+                break
+            self.PreIssue.add_entry(pinst)
+                
 
     def alu(self):
         """
@@ -247,9 +270,10 @@ class Pipeline:
             return
         self.PreALU.set_idx()
         pinst = self.PreALU.next_entry()
+        self.PreALU.add_entry(pinst)
         
         if self.FU.alu is not None and self.FU.alu.is_ready_for_exec() and pinst is not None:
-            self.PreALU.pop_entry(0)
+            self.PreALU.pop_entry()
             inst = pinst.inst
             # calc the pinst.result
             rg1 = self.RF.reg_read(self.FU.alu.f_j)
@@ -287,6 +311,7 @@ class Pipeline:
             return
         self.PreALUB.set_idx()
         pinst = self.PreALUB.next_entry()
+        self.PreALUB.add_entry(pinst)
 
         if self.FU.alub is not None and self.FU.alub.is_ready_for_exec() and pinst is not None:
             pinst.exec_cycle += 1
@@ -325,6 +350,7 @@ class Pipeline:
 
         while True:
             pinst = self.PreMEM.next_entry()
+            self.PreMEM.add_entry(pinst)
             if pinst == None:
                 break
             inst = pinst.inst
@@ -333,11 +359,17 @@ class Pipeline:
                 # calc the pinst.result
                 pinst.result = self.DS.mem_read(
                     inst.op1_val + self.RF.reg_read(inst.op2_val))
-                self.PostMEM.add_entry(pinst)
+                self.PostMEM.add_entry(pinst)  # post mem does not check
             elif isinstance(inst, InstructionStoreWord):
                 self.PreMEM.pop_entry()
                 self.DS.mem_write(self.RF.reg_read(
                     inst.op2_val) + inst.op1_val, inst.dest)
+        
+        while True:            
+            pinst = self.PreIssue.next_entry()
+            if pinst is None:
+                break
+            self.PreIssue.add_entry(pinst)
 
     def wb(self):
         """
@@ -346,8 +378,11 @@ class Pipeline:
         # based on the PostALU buffer
         if not self.PostALU.isempty():
             if (self.FU.alu.f_i != self.FU.alub.f_j or self.FU.alub.r_j == False) and (self.FU.alu.f_i != self.FU.alub.f_k or self.FU.alub.r_k == False):
-                pinst = self.PostALU.get(0)
-                self.PostALU.pop_entry(0)
+                self.PostALU.set_idx()
+                pinst = self.PostALU.next_entry()
+                self.PostALU.add_entry(pinst)
+                if pinst is not None:
+                    self.PostALU.pop_entry()
                 self.FU.alu_busy = False
                 self.RF.reg_write(pinst.dest, pinst.result)
 
@@ -361,8 +396,11 @@ class Pipeline:
         # based on the PostALUB buffer
         if not self.PostALUB.isempty():
             if (self.FU.alub.f_i != self.FU.alu.f_j or self.FU.alu.r_j == False) and (self.FU.alub.f_i != self.FU.alu.f_k or self.FU.alu.r_k == False):
-                pinst = self.PostALUB.get()
-                self.PostALUB.pop_entry()
+                self.PostALUB.set_idx()
+                pinst = self.PostALUB.next_entry()
+                self.PostALUB.add_entry(pinst)
+                if pinst is not None:
+                    self.PostALUB.pop_entry()
                 self.FU.alub_busy = False
                 self.RF.reg_write(pinst.dest, pinst.result)
 
@@ -408,42 +446,51 @@ class Queue:
 
     def __init__(self, name: str, size: int):
         self.comingentries = []
+        self.appendentries = []
         self.entries = []
         self._size = size
         self._name = name
         self.idx = 0
 
     def update(self):
-        self.entries = self.comingentries
-
+        self.idx = 0
+        sz = self.size()
+        self.entries = self.comingentries[:]
+        self.entries.extend(x for x in self.appendentries[sz:])
+        self.comingentries.clear()
+        self.appendentries.clear()
+ 
     def add_entry(self, entry: _PipelineInstEntry):
         if len(self.comingentries) < self._size:
             self.comingentries.append(entry)
             return True
         else:
             return False
-
+        
     def pop_entry(self, idx=0):
-        if len(self.entries) == 0:
-            return False
-        else:
-            del (self.comingentries[idx])
+        if len(self.comingentries):
+            del self.comingentries[-1]
             return True
+        else:
+            return False
 
     def __str__(self):
         desc_str = self._name + " Queue:\n"
         for idx in range(self._size):
             desc_str += "\tEntry " + str(idx) + ":"
             if idx < len(self.entries):
-                desc_str += "[" + str(self.entries[idx].inst.desc_str) + "]\n"
+                desc_str += "[" + '\t'.join(str(self.entries[idx].inst.desc_str).split(' ', 1)) + "]\n"
             else:
                 desc_str += "\n"
         return desc_str
     
     def set_idx(self, idx = 0):
         self.idx = idx
+        self.appendentries = self.comingentries[:]
+        self.comingentries.clear()
 
-    # __ means checking the last cycle entries
+    def copy(self):
+        self.comingentries = self.entries[:]
 
     def size(self):
         return len(self.entries)
@@ -455,9 +502,9 @@ class Queue:
         return len(self.entries) == self._size
 
     def next_entry(self):
-        if self.idx < len(self.comingentries):
+        if self.idx < len(self.entries):
             self.idx += 1
-            return self.comingentries[self.idx - 1]
+            return self.entries[self.idx - 1]
 
     def sync_size(self):
         return len(self.comingentries)
@@ -480,6 +527,7 @@ class Buffer:
         self._name = name
         self._table = []
         self._comingtable = []
+        self._appendtable = []
         self.idx = 0
 
     def add_entry(self, entry: _PipelineInstEntry):
@@ -490,40 +538,55 @@ class Buffer:
             return False
 
     def update(self):
-        self._table = self._comingtable
-
+        self.idx = 0
+        sz = self.size()
+        # 总是有两种操作，一个是后一个unit的修改操作，一个是前一个unit的加操作
+        self._table = self._comingtable[:]
+        self._table.extend(x for x in self._appendtable[sz:])
+        self._comingtable.clear()
+        self._appendtable.clear()
+    
     def pop_entry(self):
-        if self.idx < len(self._comingtable):
-            del (self._comingtable[self.idx])
+        if len(self._comingtable):
+            del self._comingtable[-1]
             return True
         return False
 
     def get(self, idx):
         if idx < len(self._table):
             return self._table[idx]
+    
+    def copy(self):
+        self._comingtable = self._table[:]
 
     def __str__(self):
         desc_str = self._name + " Buffer:"
         if self._size == 1 and len(self._table):
-            desc_str += "[" + str(self._table[0].inst.desc_str) + "]\n"
+            desc_str += "[" + '\t'.join(str(self._table[0].inst.desc_str).split(' ', 1)) + "]\n"
         else:
             desc_str += "\n"
         if self._size >= 2:
             for idx in range(self._size):
                 desc_str += "\tEntry " + str(idx) + ":"
                 if idx < len(self._table):
-                    desc_str += "[" + str(self._table[idx].inst.desc_str) + "]\n"
+                    desc_str += "[" + '\t'.join(str(self._table[idx].inst.desc_str).split(' ', 1)) + "]\n"
                 else:
                     desc_str += "\n"
         return desc_str
 
     def set_idx(self, idx = 0):
         self.idx = idx
+        self._comingtables = self._table[:]
+        self._comingtables.clear()
+        # self.idx = idx
+        # self.appendentries = self.comingentries[:]
+        # self.comingentries.clear()
     
+    # 这里的table是因为issue 需要，不许再改了
     def next_entry(self):
-        if self.idx < len(self._comingtable):
+        if self.size()  and self.idx < len(self._table):
             self.idx += 1
-            return self._comingtable[self.idx - 1]
+            return self._table[self.idx - 1]
 
     def sync_size(self):
         return len(self._comingtable)

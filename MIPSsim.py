@@ -56,12 +56,13 @@ def simulation():
     #         write_buf += '\n\n{}\n{}\n'.format(str(sim.RF), str(sim.DS))
     #         file_out.write(str(write_buf))
     with open(args.outputfilename, 'wt') as file_out:
-        for idx in range(20):
+        for idx in range(5):
+            sim.next_cycle()
             write_buf = '--------------------\nCycle:{}\n\n{}{}{}{}{}{}{}{}\n{}\n{}'.format(
-                sim.cycle + 1, sim.snapshotifunit(), str(sim.PreIssue), str(sim.PreALU), str(sim.PostALU), 
+                sim.cycle, sim.snapshotifunit(), str(sim.PreIssue), str(sim.PreALU), str(sim.PostALU), 
                 str(sim.PreALUB), str(sim.PostALUB), str(sim.PreMEM), str(sim.PostMEM), str(sim.RF), str(sim.DS))
             file_out.write(str(write_buf))
-            sim.next_cycle()
+            
 
 
 if __name__ == "__main__":
