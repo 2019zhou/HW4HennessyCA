@@ -34,10 +34,11 @@ class _PipelineInstEntry:
                            InstructionBranchOnGreaterThanZero,
                            InstructionBranchOnLessThanZero)
         sl_inst_set = (InstructionStoreWord, InstructionLoadWord)
-        alu_inst_set = (InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical,
-                        InstructionShiftWordRightArithmetic, InstructionMulWord, InstructionAddWord2, InstructionSubWord2, InstructionAnd2, InstructionSetOnLessThan2)
-        alub_inst_set = (InstructionAnd, InstructionNotOr, InstructionMulWord,
-                         InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionMulWord2)
+        alu_inst_set = (InstructionAnd, InstructionNotOr,      
+                         InstructionMulWord,InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionAnd2, InstructionSetOnLessThan2)
+        alub_inst_set = (InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical,
+                        InstructionShiftWordRightArithmetic, InstructionMulWord, InstructionMulWord2)
+        
 
         # to do add support for category 2 instructions
 
@@ -99,13 +100,13 @@ class Pipeline:
 
         # fetch and decode
         self.fetch()
-        
+
         # # issue
         self.issue()
         # # alu
-        # self.alu()
+        self.alu()
         # # alub
-        # self.alub()
+        self.alub()
         # # mem
         # self.mem()
         # # wb
@@ -121,12 +122,13 @@ class Pipeline:
         self.PreMEM.update()
         self.PostMEM.update()
         # self.snapshotall()
-        
+
     def snapshotall(self):
         print("for debug only")
         write_buf = '--------------------\nCycle:{}\n\n{}{}{}{}{}{}{}{}\n{}\n{}'.format(
-                self.cycle, self.snapshotifunit(), str(self.PreIssue), str(self.PreALU), str(self.PostALU), 
-                str(self.PreALUB), str(self.PostALUB), str(self.PreMEM), str(self.PostMEM), str(self.RF), str(self.DS))
+            self.cycle, self.snapshotifunit(), str(
+                self.PreIssue), str(self.PreALU), str(self.PostALU),
+            str(self.PreALUB), str(self.PostALUB), str(self.PreMEM), str(self.PostMEM), str(self.RF), str(self.DS))
         print(str(write_buf))
         print("for debug only")
 
@@ -222,7 +224,7 @@ class Pipeline:
             if IssueNum >= MaxIssueNum:
                 break
             pinst = self.PreIssue.next_entry()
-            print(self.PreIssue)
+            # print(self.PreIssue)
             if pinst is None:
                 break
             self.PreIssue.add_entry(pinst)
@@ -253,13 +255,12 @@ class Pipeline:
                         self.PreIssue.pop_entry()
                     elif not isinstance(pinst.inst, InstructionLoadWord):
                         LWSeq = False
-            
-        while True:            
+
+        while True:
             pinst = self.PreIssue.next_entry()
             if pinst is None:
                 break
             self.PreIssue.add_entry(pinst)
-                
 
     def alu(self):
         """
@@ -272,7 +273,9 @@ class Pipeline:
         pinst = self.PreALU.next_entry()
         self.PreALU.add_entry(pinst)
         
+
         if self.FU.alu is not None and self.FU.alu.is_ready_for_exec() and pinst is not None:
+            
             self.PreALU.pop_entry()
             inst = pinst.inst
             # calc the pinst.result
@@ -299,8 +302,14 @@ class Pipeline:
                 pinst.result = rg1 & val
             elif isinstance(inst, InstructionSetOnLessThan2):
                 pinst.result = 1 if rg1 < val else 0
-                
+
             self.PostALU.add_entry(pinst)
+        
+        while True:
+            pinst = self.PreALU.next_entry()
+            if pinst is None:
+                break
+            self.PreALU.add_entry(pinst)
 
     def alub(self):
         """
@@ -339,6 +348,12 @@ class Pipeline:
                         str((rg1 * val) & 0xFFFFFFFF))
                 self.PostALUB.add_entry(pinst)
                 pinst.exec_cycle = -1
+        
+        while True:
+            pinst = self.PreALUB.next_entry()
+            if pinst is None:
+                break
+            self.PreALUB.add_entry(pinst)
 
     def mem(self):
         """
@@ -364,8 +379,8 @@ class Pipeline:
                 self.PreMEM.pop_entry()
                 self.DS.mem_write(self.RF.reg_read(
                     inst.op2_val) + inst.op1_val, inst.dest)
-        
-        while True:            
+
+        while True:
             pinst = self.PreIssue.next_entry()
             if pinst is None:
                 break
@@ -383,7 +398,7 @@ class Pipeline:
                 self.PostALU.add_entry(pinst)
                 if pinst is not None:
                     self.PostALU.pop_entry()
-                self.FU.alu_busy = False
+                # self.FU.alu_busy = False
                 self.RF.reg_write(pinst.dest, pinst.result)
 
                 if self.FU.alub.q_j == "ALU":
@@ -401,7 +416,7 @@ class Pipeline:
                 self.PostALUB.add_entry(pinst)
                 if pinst is not None:
                     self.PostALUB.pop_entry()
-                self.FU.alub_busy = False
+                # self.FU.alub_busy = False
                 self.RF.reg_write(pinst.dest, pinst.result)
 
                 if self.FU.alu.q_j == "ALUB":
@@ -429,6 +444,10 @@ class _FUEntry:
         self.r_k = True if q_k == "" else False  # if f_k is ready
 
     def is_ready_for_exec(self) -> bool:
+        # print(self.q_j)
+        # print(self.q_k)
+        # print(self.r_j)
+        # print(self.r_k)
         return self.r_j and self.r_k
         # is_ready = False
         # if self.r_j and self.r_k:
@@ -436,12 +455,10 @@ class _FUEntry:
         # return is_ready
 
 
-# todo: merge the queue and buffer together
-
-class Queue:
+class DualStatus:
     """
-    queue that follows FIFO used by 
-    Pre-ALU, Pre-ALUB, Pre-MEM
+    maintain the dual status 
+    of queue & buffer
     """
 
     def __init__(self, name: str, size: int):
@@ -459,14 +476,14 @@ class Queue:
         self.entries.extend(x for x in self.appendentries[sz:])
         self.comingentries.clear()
         self.appendentries.clear()
- 
+
     def add_entry(self, entry: _PipelineInstEntry):
         if len(self.comingentries) < self._size:
             self.comingentries.append(entry)
             return True
         else:
             return False
-        
+
     def pop_entry(self, idx=0):
         if len(self.comingentries):
             del self.comingentries[-1]
@@ -475,16 +492,9 @@ class Queue:
             return False
 
     def __str__(self):
-        desc_str = self._name + " Queue:\n"
-        for idx in range(self._size):
-            desc_str += "\tEntry " + str(idx) + ":"
-            if idx < len(self.entries):
-                desc_str += "[" + '\t'.join(str(self.entries[idx].inst.desc_str).split(' ', 1)) + "]\n"
-            else:
-                desc_str += "\n"
-        return desc_str
-    
-    def set_idx(self, idx = 0):
+        pass
+
+    def set_idx(self, idx=0):
         self.idx = idx
         self.appendentries = self.comingentries[:]
         self.comingentries.clear()
@@ -516,99 +526,47 @@ class Queue:
         return len(self.comingentries) == self._size
 
 
-class Buffer:
+class Queue(DualStatus):
+    """
+    queue that follows FIFO used by 
+    Pre-ALU, Pre-ALUB, Pre-MEM
+    """
+
+    def __str__(self):
+        desc_str = self._name + " Queue:\n"
+        for idx in range(self._size):
+            desc_str += "\tEntry " + str(idx) + ":"
+            if idx < len(self.entries):
+                desc_str += "[" + '\t'.join(
+                    str(self.entries[idx].inst.desc_str).split(' ', 1)) + "]\n"
+            else:
+                desc_str += "\n"
+        return desc_str
+
+
+class Buffer(DualStatus):
     """
     Buffer used by 
     Pre-Issue, Post-ALU, Post-ALUB, Post-MEM
     """
 
-    def __init__(self, name: str, size: int):
-        self._size = size
-        self._name = name
-        self._table = []
-        self._comingtable = []
-        self._appendtable = []
-        self.idx = 0
-
-    def add_entry(self, entry: _PipelineInstEntry):
-        if len(self._comingtable) < self._size:
-            self._comingtable.append(entry)
-            return True
-        else:
-            return False
-
-    def update(self):
-        self.idx = 0
-        sz = self.size()
-        # 总是有两种操作，一个是后一个unit的修改操作，一个是前一个unit的加操作
-        self._table = self._comingtable[:]
-        self._table.extend(x for x in self._appendtable[sz:])
-        self._comingtable.clear()
-        self._appendtable.clear()
-    
-    def pop_entry(self):
-        if len(self._comingtable):
-            del self._comingtable[-1]
-            return True
-        return False
-
-    def get(self, idx):
-        if idx < len(self._table):
-            return self._table[idx]
-    
-    def copy(self):
-        self._comingtable = self._table[:]
-
     def __str__(self):
         desc_str = self._name + " Buffer:"
-        if self._size == 1 and len(self._table):
-            desc_str += "[" + '\t'.join(str(self._table[0].inst.desc_str).split(' ', 1)) + "]\n"
+        if self._size == 1 and len(self.entries):
+            desc_str += "[" + \
+                '\t'.join(
+                    str(self.entries[0].inst.desc_str).split(' ', 1)) + "]\n"
         else:
             desc_str += "\n"
         if self._size >= 2:
             for idx in range(self._size):
                 desc_str += "\tEntry " + str(idx) + ":"
-                if idx < len(self._table):
-                    desc_str += "[" + '\t'.join(str(self._table[idx].inst.desc_str).split(' ', 1)) + "]\n"
+                if idx < len(self.entries):
+                    desc_str += "[" + '\t'.join(
+                        str(self.entries[idx].inst.desc_str).split(' ', 1)) + "]\n"
                 else:
                     desc_str += "\n"
         return desc_str
-
-    def set_idx(self, idx = 0):
-        self.idx = idx
-        self._comingtables = self._table[:]
-        self._comingtables.clear()
-        # self.idx = idx
-        # self.appendentries = self.comingentries[:]
-        # self.comingentries.clear()
-    
-    # 这里的table是因为issue 需要，不许再改了
-    def next_entry(self):
-        if self.size()  and self.idx < len(self._table):
-            self.idx += 1
-            return self._table[self.idx - 1]
-
-    def sync_size(self):
-        return len(self._comingtable)
-
-    def sync_isempty(self):
-        return len(self._comingtable) == 0
-
-    def sync_isfull(self):
-        return len(self._comingtable) == self._size
-
-    def get(self):
-        if self.idx < len(self._table):
-            return self._table[self.idx]
-
-    def size(self):
-        return len(self._table)
-
-    def isempty(self):
-        return len(self._table) == 0
-
-    def isfull(self):
-        return len(self._table) == self._size
 
 
 class RegisterFile:
@@ -710,8 +668,8 @@ class FunctionalUnitStatus:
         self.size = 2
         self.alu = None
         self.alub = None
-        self.alu_busy = False
-        self.alub_busy = False
+        # self.alu_busy = False
+        # self.alub_busy = False
         self.ref_RF = RF
 
     def __str__(self):
@@ -727,24 +685,30 @@ class FunctionalUnitStatus:
         qj, qk = "", ""
         if pinst.get_type() == _InstTypes.ALU:
             # not busy and not result D
-            if self.alu_busy or self.ref_RF.is_ready(dest) == False:
+            # self.alu_busy or
+            if self.ref_RF.is_ready(dest) == False:
                 return success
-            self.alu_busy = True
-            qj = "ALU" if self.ref_RF.inalu(s1) else "ALUB" if self.ref_RF.inalub(s1) else "None"
+            # self.alu_busy = True
+            qj = "ALU" if self.ref_RF.inalu(
+                s1) else "ALUB" if self.ref_RF.inalub(s1) else ""
             if pinst.inst.type != Instruction._Types.type_2:
-                qk = "ALU" if self.ref_RF.inalu(s1) else "ALUB" if self.ref_RF.inalub(s2) else "None"
+                qk = "ALU" if self.ref_RF.inalu(
+                    s1) else "ALUB" if self.ref_RF.inalub(s2) else ""
             self.alu = _FUEntry(pinst, dest, s1, s2, qj, qk)
             # Result D  = dest
             self.ref_RF.record_register_status(dest, "ALU")
-            
+
             success = True
         elif pinst.get_type() == _InstTypes.ALUB:
-            if self.alub_busy or self.ref_RF.is_ready(dest) == False:
+            # self.alub_busy or
+            if self.ref_RF.is_ready(dest) == False:
                 return success
-            self.alu_busy = True
-            qj = "ALU" if self.ref_RF.inalu(s1) else "ALUB" if self.ref_RF.inalub(s1) else ""
+            # self.alub_busy = True
+            qj = "ALU" if self.ref_RF.inalu(
+                s1) else "ALUB" if self.ref_RF.inalub(s1) else ""
             if isinstance(pinst.inst, InstructionMulWord):
-                qk = "ALU" if self.ref_RF.inalu(s2) else "ALUB" if self.ref_RF.inalub(s2) else ""
+                qk = "ALU" if self.ref_RF.inalu(
+                    s2) else "ALUB" if self.ref_RF.inalub(s2) else ""
             self.alub = _FUEntry(pinst, dest, s1, s2, qj, qk)
             # Result D  = dest
             self.ref_RF.record_register_status(dest, "ALUB")
