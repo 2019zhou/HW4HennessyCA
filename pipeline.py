@@ -16,9 +16,9 @@ class _InstTypes(Enum):
 class _PipelineInstEntry:
     def __init__(self, inst: Instruction):
         self.inst = inst
-        self.pc_val = inst.pc_val
+        self.pc_val = inst.pc_val if inst is not None else -1
         self.exec_cycle = 0
-        self.dest = inst.dest
+        self.dest = inst.dest if inst is not None else -1
         self.result = None
 
         # self.fetch_cycle = -1
@@ -102,15 +102,18 @@ class Pipeline:
         self.fetch()
 
         # # issue
+        
+        self.FU.issue_init()
         self.issue()
+        
         # # alu
         self.alu()
         # # alub
         self.alub()
         # # mem
-        # self.mem()
+        self.mem()
         # # wb
-        # self.wb()
+        self.wb()
 
         # all the buffer and the queue updated
         # to simulation the parallism
@@ -264,7 +267,7 @@ class Pipeline:
 
     def alu(self):
         """
-        The ALU handles the calculation all non-memory instructions except SLL, SRL, SRA and MUL. All the instructions will take one cycle in ALU. In other words, if the Pre-ALU queue is not empty at the end of cycle N, ALU processes the topmost instruction from the Pre-ALU queue in cycle N+1. The topmost instruction is removed from the Pre-ALU queue before the end of cycle N+1. (Therefore the issue unit will see at least one empty slot in Pre-ALU queue in the beginning of cycle N+2.)
+        The ALU handles the calculation all non-memory instructions except SLL, SRL, SRA and MUL. All the instructions will take one cycle in ALU. In other words, if the fu.aluPre-ALU queue is not empty at the end of cycle N, ALU processes the topmost instruction from the Pre-ALU queue in cycle N+1. The topmost instruction is removed from the Pre-ALU queue before the end of cycle N+1. (Therefore the issue unit will see at least one empty slot in Pre-ALU queue in the beginning of cycle N+2.)
         The processed instruction and its result will be written into the Post-ALU buffer at the end of cycle N+1. Note that this operation will be performed regardless of whether Post-ALU is occupied at the beginning of cycle N+1. In other words, there is no need to check for structural hazard in Post-ALU buffer.
         """
         if self.PreALU.isempty():
@@ -272,10 +275,8 @@ class Pipeline:
         self.PreALU.set_idx()
         pinst = self.PreALU.next_entry()
         self.PreALU.add_entry(pinst)
-        
 
         if self.FU.alu is not None and self.FU.alu.is_ready_for_exec() and pinst is not None:
-            
             self.PreALU.pop_entry()
             inst = pinst.inst
             # calc the pinst.result
@@ -365,9 +366,9 @@ class Pipeline:
 
         while True:
             pinst = self.PreMEM.next_entry()
-            self.PreMEM.add_entry(pinst)
-            if pinst == None:
+            if pinst is None:
                 break
+            self.PreMEM.add_entry(pinst)
             inst = pinst.inst
             if isinstance(inst, InstructionLoadWord):
                 self.PreMEM.pop_entry()
@@ -381,10 +382,10 @@ class Pipeline:
                     inst.op2_val) + inst.op1_val, inst.dest)
 
         while True:
-            pinst = self.PreIssue.next_entry()
+            pinst = self.PreMEM.next_entry()
             if pinst is None:
                 break
-            self.PreIssue.add_entry(pinst)
+            self.PreMEM.add_entry(pinst)
 
     def wb(self):
         """
@@ -395,9 +396,9 @@ class Pipeline:
             if (self.FU.alu.f_i != self.FU.alub.f_j or self.FU.alub.r_j == False) and (self.FU.alu.f_i != self.FU.alub.f_k or self.FU.alub.r_k == False):
                 self.PostALU.set_idx()
                 pinst = self.PostALU.next_entry()
-                self.PostALU.add_entry(pinst)
                 if pinst is not None:
                     self.PostALU.pop_entry()
+                self.PostALU.add_entry(pinst)
                 # self.FU.alu_busy = False
                 self.RF.reg_write(pinst.dest, pinst.result)
 
@@ -413,9 +414,10 @@ class Pipeline:
             if (self.FU.alub.f_i != self.FU.alu.f_j or self.FU.alu.r_j == False) and (self.FU.alub.f_i != self.FU.alu.f_k or self.FU.alu.r_k == False):
                 self.PostALUB.set_idx()
                 pinst = self.PostALUB.next_entry()
-                self.PostALUB.add_entry(pinst)
+                
                 if pinst is not None:
                     self.PostALUB.pop_entry()
+                self.PostALUB.add_entry(pinst)
                 # self.FU.alub_busy = False
                 self.RF.reg_write(pinst.dest, pinst.result)
 
@@ -666,11 +668,12 @@ class FunctionalUnitStatus:
 
     def __init__(self, RF: RegisterFile):
         self.size = 2
-        self.alu = None
-        self.alub = None
+        self.alu = _FUEntry(_PipelineInstEntry(None))
+        self.alub = _FUEntry(_PipelineInstEntry(None))
         # self.alu_busy = False
         # self.alub_busy = False
         self.ref_RF = RF
+        self.tmp_ref_RF = RF
 
     def __str__(self):
         desc_str = 'Functional Unit Status Table:\n'
@@ -678,6 +681,9 @@ class FunctionalUnitStatus:
             desc_str += '[{}]\n'.format(rs_entry.pip_inst.inst.desc_str)
         # end for
         return desc_str
+    
+    def issue_init(self):
+        self.tmp_ref_RF = self.ref_RF
 
     def add_entry(self, pinst: _PipelineInstEntry):
         success = False
@@ -694,10 +700,14 @@ class FunctionalUnitStatus:
             if pinst.inst.type != Instruction._Types.type_2:
                 qk = "ALU" if self.ref_RF.inalu(
                     s1) else "ALUB" if self.ref_RF.inalub(s2) else ""
-            self.alu = _FUEntry(pinst, dest, s1, s2, qj, qk)
+            # NO WAR hazard with previously not issued instructions
+            if self.tmp_ref_RF.is_ready(s1) and (pinst.inst.type == Instruction._Types.type_2 or self.tmp_ref_RF.is_ready(s2)):
+                self.alu = _FUEntry(pinst, dest, s1, s2, qj, qk)
+            else:
+                self.tmp_ref_RF.record_register_status(dest, "ALU")
+                return success
             # Result D  = dest
             self.ref_RF.record_register_status(dest, "ALU")
-
             success = True
         elif pinst.get_type() == _InstTypes.ALUB:
             # self.alub_busy or
@@ -709,8 +719,13 @@ class FunctionalUnitStatus:
             if isinstance(pinst.inst, InstructionMulWord):
                 qk = "ALU" if self.ref_RF.inalu(
                     s2) else "ALUB" if self.ref_RF.inalub(s2) else ""
-            self.alub = _FUEntry(pinst, dest, s1, s2, qj, qk)
             # Result D  = dest
+            # NO WAR hazard with previously not issued instructions
+            if self.tmp_ref_RF.is_ready(s1) and (isinstance(pinst.inst, InstructionMulWord) or self.tmp_ref_RF.is_ready(s2)):
+                self.alub = _FUEntry(pinst, dest, s1, s2, qj, qk)
+            else:
+                self.tmp_ref_RF.record_register_status(dest, "ALU")
+                return success
             self.ref_RF.record_register_status(dest, "ALUB")
             success = True
         elif pinst.get_type() == _InstTypes.SL:
