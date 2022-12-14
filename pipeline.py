@@ -1,7 +1,7 @@
 from mips32 import Instruction, InstructionJump, InstructionJumpRegister, InstructionBranchOnEqual, InstructionBranchOnGreaterThanZero, InstructionBranchOnLessThanZero, InstructionStoreWord, InstructionLoadWord, InstructionShiftWordLeftLogical, InstructionShiftWordRightLogical, InstructionShiftWordRightArithmetic, InstructionAnd, InstructionNotOr, InstructionMulWord, InstructionSubtractWord, InstructionAddWord, InstructionSetOnLessThan, InstructionAddWord2, InstructionSubWord2, InstructionMulWord2, InstructionAnd2, InstructionSetOnLessThan2, InstructionNoOperation, InstructionBreakpoint, signed_str_to_int
 from collections import OrderedDict
 from enum import Enum
-
+import copy
 from utils import int_to_16bitstr
 
 
@@ -85,16 +85,21 @@ class Pipeline:
 
         self.inst_mem = inst_mem
         self.RF = RegisterFile()
+        self.nextRF = copy.deepcopy(self.RF)
+        
         self.DS = DataSegment(data_mem)
+        self.nextDS = copy.deepcopy(self.DS)
 
-        self.FU = FunctionalUnitStatus(self.RF)
+        self.FU = FunctionalUnitStatus(self.RF, self.nextRF)
+        
+        # ds 和 rf传入之后没有改变
 
         self.pc = 64
         self.is_over = False
 
     def next_cycle(self):
         self.cycle += 1
-
+        print("Cycle:{}".format(self.cycle))
         if self.is_over:
             return
 
@@ -102,8 +107,8 @@ class Pipeline:
         self.fetch()
 
         # # issue
-        
-        self.FU.issue_init()
+        # 此时还是引用传递，注意到需要或许可以直接传递整个对象
+        self.FU.issue_init(self.RF)
         self.issue()
         
         # # alu
@@ -114,9 +119,10 @@ class Pipeline:
         self.mem()
         # # wb
         self.wb()
+    
 
         # all the buffer and the queue updated
-        # to simulation the parallism
+        # to simulate the parallism
         self.PreIssue.update()
         self.PreALU.update()
         self.PostALU.update()
@@ -124,7 +130,15 @@ class Pipeline:
         self.PostALUB.update()
         self.PreMEM.update()
         self.PostMEM.update()
-        # self.snapshotall()
+        self.RF = self.nextRF
+        self.DS = self.nextDS
+        # self.FU = self.nextFU
+        self.nextRF = copy.deepcopy(self.RF)
+        self.nextDS = copy.deepcopy(self.DS)
+        # self.nextFU = copy.deepcopy(self.FU)
+        
+        # self.RF.snapshotStatus()
+        # self.nextRF.snapshotStatus()
 
     def snapshotall(self):
         print("for debug only")
@@ -227,7 +241,6 @@ class Pipeline:
             if IssueNum >= MaxIssueNum:
                 break
             pinst = self.PreIssue.next_entry()
-            # print(self.PreIssue)
             if pinst is None:
                 break
             self.PreIssue.add_entry(pinst)
@@ -237,6 +250,7 @@ class Pipeline:
                 elif self.FU.add_entry(pinst):
                     IssueNum += 1
                     self.PreALUB.add_entry(pinst)
+                    self.nextRF.record_register_status(pinst.dest, "ALU")
                     self.PreIssue.pop_entry()
             elif pinst.get_type() == _InstTypes.ALU:
                 if self.PreALU.isfull():
@@ -244,6 +258,7 @@ class Pipeline:
                 elif self.FU.add_entry(pinst):
                     IssueNum += 1
                     self.PreALU.add_entry(pinst)
+                    self.nextRF.record_register_status(pinst.dest, "ALU")
                     self.PreIssue.pop_entry()
             elif pinst.get_type() == _InstTypes.SL:
                 inst = pinst.inst
@@ -252,7 +267,7 @@ class Pipeline:
                         if not isinstance(pinst.inst, InstructionLoadWord):
                             LWSeq = False
                         continue
-                    if self.RF.is_ready(inst.dest) and self.RF.is_ready(inst.op2_val):
+                    if self.FU.add_entry(pinst):
                         IssueNum += 1
                         self.PreMEM.add_entry(pinst)
                         self.PreIssue.pop_entry()
@@ -280,6 +295,7 @@ class Pipeline:
             self.PreALU.pop_entry()
             inst = pinst.inst
             # calc the pinst.result
+            print(inst.desc_str)
             rg1 = self.RF.reg_read(self.FU.alu.f_j)
             if inst.type is not Instruction._Types.type_2:
                 rg2 = self.RF.reg_read(self.FU.alu.f_k)
@@ -305,12 +321,22 @@ class Pipeline:
                 pinst.result = 1 if rg1 < val else 0
 
             self.PostALU.add_entry(pinst)
-        
-        while True:
+            
+            # update the FU
+            # since the size of the prealu is two, there is at most one pinst left
+            pinst = self.PreALU.next_entry()
+            if pinst is not None:
+                # update the FU
+                self.FU.alu = copy.deepcopy(self.FU.nextalu)
+                self.PreALU.add_entry(pinst)
+            else:
+                self.FU.alu_busy = False
+        else:
+           while True:
             pinst = self.PreALU.next_entry()
             if pinst is None:
                 break
-            self.PreALU.add_entry(pinst)
+            self.PreALU.add_entry(pinst) 
 
     def alub(self):
         """
@@ -349,12 +375,20 @@ class Pipeline:
                         str((rg1 * val) & 0xFFFFFFFF))
                 self.PostALUB.add_entry(pinst)
                 pinst.exec_cycle = -1
-        
-        while True:
-            pinst = self.PreALUB.next_entry()
-            if pinst is None:
-                break
-            self.PreALUB.add_entry(pinst)
+                
+                pinst = self.PreALU.next_entry()
+                if pinst is not None:
+                    # update the FU
+                    self.nextFU.alu = copy.deepcopy(self.FU.nextalu)
+                    self.PreALU.add_entry(pinst)
+                else:
+                    self.nextFU.alu_busy = False
+        else:
+            while True:
+                pinst = self.PreALUB.next_entry()
+                if pinst is None:
+                    break
+                self.PreALUB.add_entry(pinst)
 
     def mem(self):
         """
@@ -378,7 +412,7 @@ class Pipeline:
                 self.PostMEM.add_entry(pinst)  # post mem does not check
             elif isinstance(inst, InstructionStoreWord):
                 self.PreMEM.pop_entry()
-                self.DS.mem_write(self.RF.reg_read(
+                self.nextDS.mem_write(self.RF.reg_read(
                     inst.op2_val) + inst.op1_val, inst.dest)
 
         while True:
@@ -391,47 +425,66 @@ class Pipeline:
         """
         WB unit can execute up to three writebacks in one cycle. It updates the Register File based on the content of Post-ALU Buffer, Post-ALUB Buffer, and Post-MEM Buffer. The update is finished before the end of the cycle. The new value will be available at the beginning of next cycle
         """
+        self.PostALU.set_idx()
+        self.PostALUB.set_idx()
+        self.PostMEM.set_idx()
+        
         # based on the PostALU buffer
         if not self.PostALU.isempty():
-            if (self.FU.alu.f_i != self.FU.alub.f_j or self.FU.alub.r_j == False) and (self.FU.alu.f_i != self.FU.alub.f_k or self.FU.alub.r_k == False):
-                self.PostALU.set_idx()
+            if (self.FU.alub.r_j == False or self.FU.alu.f_i != self.FU.alub.f_j) and (self.FU.alub.r_k == False or self.FU.alu.f_i != self.FU.alub.f_k):
+            
                 pinst = self.PostALU.next_entry()
-                if pinst is not None:
-                    self.PostALU.pop_entry()
-                self.PostALU.add_entry(pinst)
-                # self.FU.alu_busy = False
-                self.RF.reg_write(pinst.dest, pinst.result)
+
+                # self.nextFU.alu_busy = False
+                self.nextRF.reg_write(pinst.dest, pinst.result)
 
                 if self.FU.alub.q_j == "ALU":
                     self.FU.alub.r_j = True
                 if self.FU.alub.q_k == "ALU":
                     self.FU.alub.r_k = True
 
-                self.RF.flush_register_status(pinst.dest)
+                self.nextRF.flush_register_status(pinst.dest)
                 pinst.result = None
+                
+                while True:
+                    pinst = self.PostALU.next_entry()
+                    if pinst is None:
+                        break
+                    self.PostALU.add_entry(pinst)
         # based on the PostALUB buffer
         if not self.PostALUB.isempty():
-            if (self.FU.alub.f_i != self.FU.alu.f_j or self.FU.alu.r_j == False) and (self.FU.alub.f_i != self.FU.alu.f_k or self.FU.alu.r_k == False):
-                self.PostALUB.set_idx()
+            if (self.FU.alu.r_j == False or self.FU.alub.f_i != self.FU.alu.f_j) and (self.FU.alu.r_k == False or self.FU.alub.f_i != self.FU.alu.f_k):
+
                 pinst = self.PostALUB.next_entry()
                 
-                if pinst is not None:
-                    self.PostALUB.pop_entry()
-                self.PostALUB.add_entry(pinst)
                 # self.FU.alub_busy = False
-                self.RF.reg_write(pinst.dest, pinst.result)
+                self.nextRF.reg_write(pinst.dest, pinst.result)
 
                 if self.FU.alu.q_j == "ALUB":
-                    self.FU.alu.r_j = True
+                    self.nextFU.alu.r_j = True
                 if self.FU.alu.q_k == "ALUB":
-                    self.FU.alu.r_k = True
+                    self.nextFU.alu.r_k = True
 
-                self.RF.flush_register_status(pinst.dest)
+                self.nextRF.flush_register_status(pinst.dest)
                 pinst.result = None
+                
+                while True:
+                    pinst = self.PostALUB.next_entry()
+                    if pinst is None:
+                        break
+                    self.PostALUB.add_entry(pinst)
+                
         # based on the PostMEM buffer
         if not self.PostMEM.isempty():
+            pinst = self.PostMEM.next_entry()
             # todo check whether there is some problem with the registers related
-            self.RF.reg_write(pinst.dest, pinst.result)
+            self.nextRF.reg_write(pinst.dest, pinst.result)
+            
+            while True:
+                pinst = self.PostMEM.next_entry()
+                if pinst is None:
+                    break
+                self.PostMEM.add_entry(pinst)
 
 
 class _FUEntry:
@@ -474,8 +527,11 @@ class DualStatus:
     def update(self):
         self.idx = 0
         sz = self.size()
-        self.entries = self.comingentries[:]
-        self.entries.extend(x for x in self.appendentries[sz:])
+        if self._size == 1:  # do not check the post alu, post alub, post mem
+            self.entries = self.appendentries[:]
+        else:
+            self.entries = self.comingentries[:]
+            self.entries.extend(x for x in self.appendentries[sz:])
         self.comingentries.clear()
         self.appendentries.clear()
 
@@ -593,6 +649,17 @@ class RegisterFile:
             desc_str += '\t' + str(self.R[idx])
         desc_str += '\n'
         return desc_str
+    
+    def snapshotStatus(self):
+        print("debug only")
+        desc_str = ""
+        for idx in range(self.size):
+            if idx % self.print_width == 0:
+                desc_str += '\nR{}:'.format(str(idx).zfill(2))
+            desc_str += '\t' + str(self.is_ready(idx))
+        desc_str += '\n'
+        print(desc_str)
+        print("debug only")
 
     def record_register_status(self, reg_addr: int, fu: str):
         if fu == "ALU":
@@ -610,8 +677,7 @@ class RegisterFile:
         return self._table_RegisterStatus[reg_addr].inalub
 
     def flush_register_status(self, reg_addr: int):
-        for reg_status in self._table_RegisterStatus:
-            reg_status.reset()
+        self._table_RegisterStatus[reg_addr].reset()
 
     def reg_write(self, reg_addr: int, value: int):
         if reg_addr < 32 and reg_addr >= 0:
@@ -666,14 +732,16 @@ class FunctionalUnitStatus:
     ALUB   SLL, SRL, SRA, MUL
     """
 
-    def __init__(self, RF: RegisterFile):
+    def __init__(self, RF: RegisterFile, nextRF: RegisterFile):
         self.size = 2
         self.alu = _FUEntry(_PipelineInstEntry(None))
         self.alub = _FUEntry(_PipelineInstEntry(None))
-        # self.alu_busy = False
-        # self.alub_busy = False
+        self.nextalu = _FUEntry(_PipelineInstEntry(None))
+        self.nextalub = _FUEntry(_PipelineInstEntry(None))
+        self.alu_busy = False
+        self.alub_busy = False
         self.ref_RF = RF
-        self.tmp_ref_RF = RF
+        self.tmp_ref_RF = copy.deepcopy(self.ref_RF)
 
     def __str__(self):
         desc_str = 'Functional Unit Status Table:\n'
@@ -682,8 +750,9 @@ class FunctionalUnitStatus:
         # end for
         return desc_str
     
-    def issue_init(self):
-        self.tmp_ref_RF = self.ref_RF
+    def issue_init(self, RF: RegisterFile):
+        self.ref_RF = copy.deepcopy(RF)
+        self.tmp_ref_RF = copy.deepcopy(RF)
 
     def add_entry(self, pinst: _PipelineInstEntry):
         success = False
@@ -694,26 +763,30 @@ class FunctionalUnitStatus:
             # self.alu_busy or
             if self.ref_RF.is_ready(dest) == False:
                 return success
-            # self.alu_busy = True
+            
             qj = "ALU" if self.ref_RF.inalu(
                 s1) else "ALUB" if self.ref_RF.inalub(s1) else ""
             if pinst.inst.type != Instruction._Types.type_2:
                 qk = "ALU" if self.ref_RF.inalu(
                     s1) else "ALUB" if self.ref_RF.inalub(s2) else ""
             # NO WAR hazard with previously not issued instructions
+            self.tmp_ref_RF.record_register_status(dest, "ALU")
             if self.tmp_ref_RF.is_ready(s1) and (pinst.inst.type == Instruction._Types.type_2 or self.tmp_ref_RF.is_ready(s2)):
-                self.alu = _FUEntry(pinst, dest, s1, s2, qj, qk)
+                if self.alu_busy:
+                    self.nextalu = _FUEntry(pinst, dest, s1, s2, qj, qk)
+                else:
+                    self.alu_busy = True
+                    self.alu = _FUEntry(pinst, dest, s1, s2, qj, qk)  
             else:
-                self.tmp_ref_RF.record_register_status(dest, "ALU")
                 return success
             # Result D  = dest
-            self.ref_RF.record_register_status(dest, "ALU")
+            
+            # self.next_RF.snapshotStatus()
             success = True
         elif pinst.get_type() == _InstTypes.ALUB:
             # self.alub_busy or
             if self.ref_RF.is_ready(dest) == False:
                 return success
-            # self.alub_busy = True
             qj = "ALU" if self.ref_RF.inalu(
                 s1) else "ALUB" if self.ref_RF.inalub(s1) else ""
             if isinstance(pinst.inst, InstructionMulWord):
@@ -722,14 +795,20 @@ class FunctionalUnitStatus:
             # Result D  = dest
             # NO WAR hazard with previously not issued instructions
             if self.tmp_ref_RF.is_ready(s1) and (isinstance(pinst.inst, InstructionMulWord) or self.tmp_ref_RF.is_ready(s2)):
-                self.alub = _FUEntry(pinst, dest, s1, s2, qj, qk)
+                if self.alub_busy:
+                    self.nextalub = _FUEntry(pinst, dest, s1, s2, qj, qk)
+                else:
+                    self.alub_busy = True
+                    self.alub = _FUEntry(pinst, dest, s1, s2, qj, qk)
             else:
                 self.tmp_ref_RF.record_register_status(dest, "ALU")
                 return success
-            self.ref_RF.record_register_status(dest, "ALUB")
             success = True
         elif pinst.get_type() == _InstTypes.SL:
-            pass
+            if self.tmp_ref_RF.is_ready(dest) and self.tmp_ref_RF.is_ready(s2):
+                success = True
+            else:
+                return success
         return success
 
     # only decode the ALU and SL instructions
