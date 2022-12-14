@@ -137,7 +137,7 @@ class Pipeline:
         self.nextDS = copy.deepcopy(self.DS)
         # self.nextFU = copy.deepcopy(self.FU)
         
-        # self.RF.snapshotStatus()
+        self.RF.snapshotStatus()
         # self.nextRF.snapshotStatus()
 
     def snapshotall(self):
@@ -209,9 +209,9 @@ class Pipeline:
                         Ready = True
                 # means it has been executed
                 if Ready:
-                    self.IFUnit[0] = str(inst.desc_str)
+                    self.IFUnit[0] = str('\t'.join(str(inst.desc_str).split(' ', 1)))
                 else:
-                    self.IFUnit[1] = str(inst.desc_str)
+                    self.IFUnit[1] = str('\t'.join(str(inst.desc_str).split(' ', 1)))
                 break
             elif isinstance(next_inst_to_fetch, InstructionBreakpoint):
                 self.is_over = True
@@ -253,6 +253,9 @@ class Pipeline:
                     self.nextRF.record_register_status(pinst.dest, "ALU")
                     self.PreIssue.pop_entry()
             elif pinst.get_type() == _InstTypes.ALU:
+                print("pinst start")
+                print(pinst.inst.desc_str)
+                print("pinst end")
                 if self.PreALU.isfull():
                     continue
                 elif self.FU.add_entry(pinst):
@@ -763,21 +766,22 @@ class FunctionalUnitStatus:
             # self.alu_busy or
             if self.ref_RF.is_ready(dest) == False:
                 return success
-            
             qj = "ALU" if self.ref_RF.inalu(
                 s1) else "ALUB" if self.ref_RF.inalub(s1) else ""
             if pinst.inst.type != Instruction._Types.type_2:
                 qk = "ALU" if self.ref_RF.inalu(
                     s1) else "ALUB" if self.ref_RF.inalub(s2) else ""
             # NO WAR hazard with previously not issued instructions
-            self.tmp_ref_RF.record_register_status(dest, "ALU")
+            
             if self.tmp_ref_RF.is_ready(s1) and (pinst.inst.type == Instruction._Types.type_2 or self.tmp_ref_RF.is_ready(s2)):
+                self.tmp_ref_RF.record_register_status(dest, "ALU")
                 if self.alu_busy:
                     self.nextalu = _FUEntry(pinst, dest, s1, s2, qj, qk)
                 else:
                     self.alu_busy = True
                     self.alu = _FUEntry(pinst, dest, s1, s2, qj, qk)  
             else:
+                self.tmp_ref_RF.record_register_status(dest, "ALU")
                 return success
             # Result D  = dest
             
@@ -794,15 +798,18 @@ class FunctionalUnitStatus:
                     s2) else "ALUB" if self.ref_RF.inalub(s2) else ""
             # Result D  = dest
             # NO WAR hazard with previously not issued instructions
+            
             if self.tmp_ref_RF.is_ready(s1) and (isinstance(pinst.inst, InstructionMulWord) or self.tmp_ref_RF.is_ready(s2)):
+                self.tmp_ref_RF.record_register_status(dest, "ALUB")
                 if self.alub_busy:
                     self.nextalub = _FUEntry(pinst, dest, s1, s2, qj, qk)
                 else:
                     self.alub_busy = True
                     self.alub = _FUEntry(pinst, dest, s1, s2, qj, qk)
             else:
-                self.tmp_ref_RF.record_register_status(dest, "ALU")
+                self.tmp_ref_RF.record_register_status(dest, "ALUB")
                 return success
+            
             success = True
         elif pinst.get_type() == _InstTypes.SL:
             if self.tmp_ref_RF.is_ready(dest) and self.tmp_ref_RF.is_ready(s2):
