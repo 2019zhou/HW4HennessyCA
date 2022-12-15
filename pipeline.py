@@ -56,17 +56,18 @@ class _PipelineInstEntry:
 
 
 # maintain the register result status table
-# There are only two function unit namely alu and alub
-# thus, register is either allocated in alu or alub
+# There are only two function unit namely alu and alub, and mem
+# thus, register is either allocated in alu or alub or mem
 class _RegisterAllocationUnit:
     def __init__(self):
         self.inalu = False
         self.inalub = False
+        self.inmem = False
 
     def reset(self):
         self.inalu = False
         self.inalub = False
-
+        self.inmem = False
 
 class Pipeline:
     cycle = 0
@@ -104,6 +105,7 @@ class Pipeline:
             return
 
         # fetch and decode
+        self.IFUnit = [""]*2
         self.fetch()
 
         # # issue
@@ -137,7 +139,7 @@ class Pipeline:
         self.nextDS = copy.deepcopy(self.DS)
         # self.nextFU = copy.deepcopy(self.FU)
         
-        self.RF.snapshotStatus()
+        # self.RF.snapshotStatus()
         # self.nextRF.snapshotStatus()
 
     def snapshotall(self):
@@ -185,31 +187,33 @@ class Pipeline:
                 if isinstance(inst, InstructionJump):
                     self.next_pc = inst.dest
                 # check whether the register are ready
+                # todo is_ready 要不要换成都判断 tmp_ref的函数 self.RF.is_ready(inst.op1_val)
                 Ready = False
                 if isinstance(inst, InstructionJumpRegister):
-                    if self.RF.is_ready(inst.op1_val):
+                    if self.FU.tmp_ref_RF.is_ready(inst.op1_val):
                         self.next_pc = self.RF.reg_read(inst.op1_val)
                         Ready = True
                 elif isinstance(inst, InstructionBranchOnEqual):
-                    if self.RF.is_ready(inst.op1_val) and self.RF.is_ready(inst.op2_val):
+                    if self.FU.tmp_ref_RF.is_ready(inst.op1_val) and self.FU.tmp_ref_RF.is_ready(inst.op2_val):
                         if self.RF.reg_read(inst.op1_val) == self.RF.reg_read(inst.op2_val):
                             self.next_pc = self.pc + inst.dest + 4
                         Ready = True
                 elif isinstance(inst, InstructionBranchOnGreaterThanZero):
-                    if self.RF.is_ready(inst.op1_val):
+                    if self.FU.tmp_ref_RF.is_ready(inst.op1_val):
                         if self.RF.reg_read(inst.op1_val) > 0:
                             self.next_pc = self.pc + \
                                 signed_str_to_int(inst.offset + "00") + 4
                         Ready = True
                 elif isinstance(inst, InstructionBranchOnLessThanZero):
-                    if self.RF.is_ready(inst.op1_val):
-                        if self.RF.reg_read(inst.op1_val) > 0:
+                    if self.FU.tmp_ref_RF.is_ready(inst.op1_val):
+                        if self.RF.reg_read(inst.op1_val) < 0:
                             self.next_pc = self.pc + \
                                 signed_str_to_int(inst.offset + "00") + 4
                         Ready = True
                 # means it has been executed
                 if Ready:
                     self.IFUnit[0] = str('\t'.join(str(inst.desc_str).split(' ', 1)))
+                    self.pc = self.next_pc
                 else:
                     self.IFUnit[1] = str('\t'.join(str(inst.desc_str).split(' ', 1)))
                 break
@@ -217,6 +221,8 @@ class Pipeline:
                 self.is_over = True
                 break
             self.pc = self.next_pc
+            if self.cycle == 21:
+                print(self.pc)
         return
 
     def issue(self):
@@ -253,9 +259,9 @@ class Pipeline:
                     self.nextRF.record_register_status(pinst.dest, "ALU")
                     self.PreIssue.pop_entry()
             elif pinst.get_type() == _InstTypes.ALU:
-                print("pinst start")
-                print(pinst.inst.desc_str)
-                print("pinst end")
+                # print("pinst start")
+                # print(pinst.inst.desc_str)
+                # print("pinst end")
                 if self.PreALU.isfull():
                     continue
                 elif self.FU.add_entry(pinst):
@@ -267,12 +273,13 @@ class Pipeline:
                 inst = pinst.inst
                 if LWSeq:
                     if self.PreMEM.isfull():
-                        if not isinstance(pinst.inst, InstructionLoadWord):
+                        if not isinstance(inst, InstructionLoadWord):
                             LWSeq = False
                         continue
                     if self.FU.add_entry(pinst):
                         IssueNum += 1
                         self.PreMEM.add_entry(pinst)
+                        self.nextRF.record_register_status(pinst.dest, "MEM")
                         self.PreIssue.pop_entry()
                     elif not isinstance(pinst.inst, InstructionLoadWord):
                         LWSeq = False
@@ -298,7 +305,7 @@ class Pipeline:
             self.PreALU.pop_entry()
             inst = pinst.inst
             # calc the pinst.result
-            print(inst.desc_str)
+            # print(inst.desc_str)
             rg1 = self.RF.reg_read(self.FU.alu.f_j)
             if inst.type is not Instruction._Types.type_2:
                 rg2 = self.RF.reg_read(self.FU.alu.f_k)
@@ -359,6 +366,7 @@ class Pipeline:
                 inst = pinst.inst
                 rg1 = self.RF.reg_read(self.FU.alu.f_j)
                 val = self.FU.alu.f_k
+                self.PreALUB.pop_entry()
                 # For SLL, SRL, SRA: rg1 is the value to be shifted, rg2 is the shift amount
                 if isinstance(inst, InstructionShiftWordLeftLogical):
                     pinst.result = signed_str_to_int(
@@ -367,6 +375,10 @@ class Pipeline:
                     pinst.result = signed_str_to_int(
                         "0"*val + int_to_16bitstr(rg1)[:val])
                 elif isinstance(inst, InstructionShiftWordRightArithmetic):
+                    print("shift right arithmetic")
+                    print(rg1)
+                    print(pinst.result)
+                    print(val)
                     pinst.result = signed_str_to_int(int_to_16bitstr(
                         rg1)[0]*val + int_to_16bitstr(rg1)[:val])
                 elif isinstance(inst, InstructionMulWord):
@@ -382,10 +394,10 @@ class Pipeline:
                 pinst = self.PreALU.next_entry()
                 if pinst is not None:
                     # update the FU
-                    self.nextFU.alu = copy.deepcopy(self.FU.nextalu)
+                    self.FU.alu = copy.deepcopy(self.FU.nextalu)
                     self.PreALU.add_entry(pinst)
                 else:
-                    self.nextFU.alu_busy = False
+                    self.FU.alu_busy = False
         else:
             while True:
                 pinst = self.PreALUB.next_entry()
@@ -395,16 +407,15 @@ class Pipeline:
 
     def mem(self):
         """
+        each time MEM only process one instruction!
         The MEM unit handles LW and SW instructions in Pre-MEM queue. For LW instruction, it takes one cycle to finish. When a LW instruction finishes, the instruction with destination register id and the data will be written to the Post-MEM buffer before the end of cycle. Note that this operation will be performed regardless of whether the Post-MEM is occupied at the beginning of this cycle. For SW instruction, it takes one cycle to write the data to memory. When a SW instruction finishes, nothing would be sent to Post-MEM buffer. When a MEM instruction finishes execution at MEM unit, it is removed from the Pre-MEM queue before the end of cycle.
         """
         if self.PreMEM.isempty():
             return
         self.PreMEM.set_idx()
 
-        while True:
-            pinst = self.PreMEM.next_entry()
-            if pinst is None:
-                break
+        pinst = self.PreMEM.next_entry()
+        if pinst is not None:
             self.PreMEM.add_entry(pinst)
             inst = pinst.inst
             if isinstance(inst, InstructionLoadWord):
@@ -415,14 +426,15 @@ class Pipeline:
                 self.PostMEM.add_entry(pinst)  # post mem does not check
             elif isinstance(inst, InstructionStoreWord):
                 self.PreMEM.pop_entry()
+                self.nextRF.flush_register_status(inst.dest)
                 self.nextDS.mem_write(self.RF.reg_read(
-                    inst.op2_val) + inst.op1_val, inst.dest)
-
-        while True:
+                    inst.op2_val) + inst.op1_val, self.RF.reg_read(inst.dest))
+                
+            # at most two instructions are left
             pinst = self.PreMEM.next_entry()
-            if pinst is None:
-                break
-            self.PreMEM.add_entry(pinst)
+            if pinst is not None:
+                self.nextRF.record_register_status(pinst.inst.dest, "MEM")
+                self.PreMEM.add_entry(pinst)
 
     def wb(self):
         """
@@ -482,6 +494,10 @@ class Pipeline:
             pinst = self.PostMEM.next_entry()
             # todo check whether there is some problem with the registers related
             self.nextRF.reg_write(pinst.dest, pinst.result)
+            
+            self.FU.tmp_ref_RF.flush_register_status(pinst.dest)
+            self.nextRF.flush_register_status(pinst.dest)
+            pinst.result = None
             
             while True:
                 pinst = self.PostMEM.next_entry()
@@ -669,15 +685,20 @@ class RegisterFile:
             self._table_RegisterStatus[reg_addr].inalu = True
         if fu == "ALUB":
             self._table_RegisterStatus[reg_addr].inalub = True
+        if fu == "MEM":
+            self._table_RegisterStatus[reg_addr].inmem = True
 
     def is_ready(self, reg_addr: int) -> bool:
-        return self._table_RegisterStatus[reg_addr].inalu == False and self._table_RegisterStatus[reg_addr].inalub == False
+        return self._table_RegisterStatus[reg_addr].inalu == False and self._table_RegisterStatus[reg_addr].inalub == False and self._table_RegisterStatus[reg_addr].inmem == False
 
     def inalu(self, reg_addr) -> bool:
         return self._table_RegisterStatus[reg_addr].inalu
 
     def inalub(self, reg_addr) -> bool:
         return self._table_RegisterStatus[reg_addr].inalub
+    
+    def inmem(self, reg_addr) -> bool:
+        return self._table_RegisterStatus[reg_addr].inmem
 
     def flush_register_status(self, reg_addr: int):
         self._table_RegisterStatus[reg_addr].reset()
@@ -703,9 +724,9 @@ class DataSegment:
     def __init__(self, data_mem):
         self._table = data_mem
         self.print_width = 8
-        self._mem_lock = {}
-        for addr in data_mem:
-            self._mem_lock[addr] = False
+        # self._mem_lock = {}
+        # for addr in data_mem:
+        #     self._mem_lock[addr] = False
 
     def __str__(self):
         desc_str = 'Data'
@@ -715,7 +736,6 @@ class DataSegment:
                 desc_str += '\n{}:'.format(key)
             desc_str += '\t{}'.format(value.int_val)
             cnt += 1
-
         return desc_str + '\n'
 
     def mem_write(self, mem_addr: int, value: int):
@@ -724,8 +744,8 @@ class DataSegment:
     def mem_read(self, mem_addr: int) -> int:
         return self._table[mem_addr].int_val
 
-    def mem_lock(self, mem_addr):
-        return self._mem_lock[mem_addr]
+    # def mem_lock(self, mem_addr):
+    #     return self._mem_lock[mem_addr]
 
 
 class FunctionalUnitStatus:
@@ -812,9 +832,15 @@ class FunctionalUnitStatus:
             
             success = True
         elif pinst.get_type() == _InstTypes.SL:
-            if self.tmp_ref_RF.is_ready(dest) and self.tmp_ref_RF.is_ready(s2):
+            print(pinst.inst.desc_str)
+            if self.ref_RF.is_ready(dest) == False:
+                return success
+            if ((self.ref_RF.is_ready(dest) and self.tmp_ref_RF.inmem(dest)) or self.tmp_ref_RF.is_ready(dest)) and self.tmp_ref_RF.is_ready(s2):
+                print("SL")
+                self.tmp_ref_RF.record_register_status(dest, "MEM")
                 success = True
             else:
+                self.tmp_ref_RF.record_register_status(dest, "MEM")
                 return success
         return success
 
