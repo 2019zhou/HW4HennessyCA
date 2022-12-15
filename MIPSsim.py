@@ -45,6 +45,7 @@ def simulation():
     # sim = SimpleSim(instr_mem, data_mem)
     sim = Pipeline(instr_mem, data_mem)
     cycle = 0
+    ## uncomment to run the homework 1
     # with open(args.outputfilename, 'wt') as file_out:
     #     while not sim.is_over:
     #         cycle += 1
@@ -55,6 +56,7 @@ def simulation():
     #         sim.next_instr()
     #         write_buf += '\n\n{}\n{}\n'.format(str(sim.RF), str(sim.DS))
     #         file_out.write(str(write_buf))
+    ## for homework 2
     with open(args.outputfilename, 'wt') as file_out:
         while not sim.is_over:
             sim.next_cycle()
