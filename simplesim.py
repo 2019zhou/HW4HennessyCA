@@ -58,7 +58,7 @@ class SimpleSim:
         elif isinstance(cur_str, InstructionShiftWordLeftLogical):
             self.RF.reg_write(cur_str.dest, signed_str_to_int(int_to_16bitstr(rg2)[cur_str.sa_val:] + "0"*cur_str.sa_val))
         elif isinstance(cur_str, InstructionShiftWordRightLogical):
-            self.RF.reg_write(cur_str.dest, signed_str_to_int("0"*cur_str.sa_val + int_to_16bitstr(rg2)[:cur_str.sa_val]))
+            self.RF.reg_write(cur_str.dest, signed_str_to_int("0"*cur_str.sa_val + int_to_16bitstr(rg2)[:-cur_str.sa_val]))
         elif isinstance(cur_str, InstructionShiftWordRightArithmetic):
             self.RF.reg_write(cur_str.dest, signed_str_to_int(int_to_16bitstr(rg2)[0]*cur_str.sa_val + int_to_16bitstr(rg2)[:cur_str.sa_val]))
         elif isinstance(cur_str, InstructionAnd):

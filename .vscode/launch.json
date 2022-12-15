@@ -8,6 +8,7 @@
             "name": "Python: simulation",
             "type": "python",
             "request": "launch",
+            "console": "integratedTerminal",
             "program": "MIPSsim.py",
             "justMyCode": false
         }
