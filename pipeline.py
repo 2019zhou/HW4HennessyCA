@@ -100,7 +100,7 @@ class Pipeline:
 
     def next_cycle(self):
         self.cycle += 1
-        print("Cycle:{}".format(self.cycle))
+        
         if self.is_over:
             return
 
@@ -121,8 +121,7 @@ class Pipeline:
         self.mem()
         # # wb
         self.wb()
-        if self.cycle == 35:
-            print(self.PreIssue.snapshot())
+
         # all the buffer and the queue updated
         # to simulate the parallism
         self.PreIssue.update()
@@ -225,8 +224,7 @@ class Pipeline:
                 self.is_over = True
                 break
             self.pc = self.next_pc
-            if self.cycle == 21:
-                print(self.pc)
+
         return
 
     def issue(self):
@@ -272,9 +270,7 @@ class Pipeline:
                     self.PreIssue.pop_entry()
             elif pinst.get_type() == _InstTypes.SL:
                 inst = pinst.inst
-                if self.cycle == 35:
-                    print(self.PreIssue.snapshot())
-                    print("1")
+
                 if LWSeq:
                     if self.PreMEM.sync_isfull():
                         if not isinstance(inst, InstructionLoadWord):
@@ -382,10 +378,6 @@ class Pipeline:
                     pinst.result = signed_str_to_int(
                         "0"*val + int_to_16bitstr(rg1)[:-val])
                 elif isinstance(inst, InstructionShiftWordRightArithmetic):
-                    print("shift right arithmetic")
-                    print(rg1)
-                    print(pinst.result)
-                    print(val)
                     pinst.result = signed_str_to_int(int_to_16bitstr(
                         rg1)[0]*val + int_to_16bitstr(rg1)[:val])
                 elif isinstance(inst, InstructionMulWord):
@@ -432,17 +424,9 @@ class Pipeline:
                     inst.op1_val + self.RF.reg_read(inst.op2_val))
                 self.PostMEM.add_entry(pinst)  # post mem does not check
             elif isinstance(inst, InstructionStoreWord):
-                print(inst.desc_str)
-                if self.cycle == 36:
-                    print("mem write")
-                    print(inst.dest)
-                    self.nextRF.snapshotStatus()
                 self.PreMEM.pop_entry()
                 # self.nextRF.flush_register_status(inst.dest)
-                if self.cycle == 36:
-                    print("mem write")
-                    print(inst.dest)
-                    self.nextRF.snapshotStatus()
+
                 self.nextDS.mem_write(self.RF.reg_read(
                     inst.op2_val) + inst.op1_val, self.RF.reg_read(inst.dest))
                 
@@ -451,10 +435,7 @@ class Pipeline:
             if pinst is not None:
                 self.nextRF.record_register_status(pinst.inst.dest, "MEM")
                 self.PreMEM.add_entry(pinst)
-            if self.cycle == 35:
-                    print("mem write")
-                    print(inst.dest)
-                    self.nextRF.snapshotStatus()
+
 
     def wb(self):
         """
@@ -525,8 +506,7 @@ class Pipeline:
             self.nextRF.reg_write(pinst.dest, pinst.result)
             
             self.nextRF.flush_register_status(pinst.dest)
-            if self.cycle == 35:
-                print()
+
             pinst.result = None
             
             while True:
@@ -886,12 +866,10 @@ class FunctionalUnitStatus:
             
             success = True
         elif pinst.get_type() == _InstTypes.SL:
-            print(pinst.inst.desc_str)
             
             if self.ref_RF.is_ready(dest) == False:
                 return success
             if ((self.ref_RF.is_ready(dest) and self.tmp_ref_RF.inmem(dest)) or self.tmp_ref_RF.is_ready(dest)) and self.tmp_ref_RF.is_ready(s2):
-                print("SL")
                 self.tmp_ref_RF.record_register_status(dest, "MEM")
                 success = True
             else:
