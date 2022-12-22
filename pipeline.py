@@ -790,7 +790,6 @@ class FunctionalUnitStatus:
     """
 
     def __init__(self, RF: RegisterFile, nextRF: RegisterFile):
-        self.size = 2
         self.alu = _FUEntry(_PipelineInstEntry(None))
         self.alub = _FUEntry(_PipelineInstEntry(None))
         self.nextalu = _FUEntry(_PipelineInstEntry(None))
@@ -800,12 +799,6 @@ class FunctionalUnitStatus:
         self.ref_RF = RF
         self.tmp_ref_RF = copy.deepcopy(self.ref_RF)
 
-    def __str__(self):
-        desc_str = 'Functional Unit Status Table:\n'
-        for rs_entry in self.queue:
-            desc_str += '[{}]\n'.format(rs_entry.pip_inst.inst.desc_str)
-        # end for
-        return desc_str
     
     def issue_init(self, RF: RegisterFile):
         self.ref_RF = copy.deepcopy(RF)

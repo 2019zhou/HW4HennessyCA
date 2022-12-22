@@ -1,0 +1,252 @@
+@startuml
+!theme minty
+class Data {
+  pc_val
+  data_str
+  ..
+  decoded_str()
+}
+
+abstract class Instruction {
+  pc_val
+  instr_str
+  ..
+  type
+  ..
+  is_break()
+  {abstract}_parse_instr_binary()
+}
+
+abstract class InstructionTypeI {
+  _InstSet
+  ..
+  _parse_instr_binary()
+  ..
+  {abstract}_inst_decode
+}
+
+
+abstract class InstructionTypeR {
+  _InstSet
+  ..
+  _parse_instr_binary()
+  ..
+  {abstract}_inst_decode
+}
+
+
+abstract class InstructionTypeJ {
+  _InstSet
+  ..
+  _parse_instr_binary()
+  ..
+  {abstract}_inst_decode
+}
+
+abstract class InstructionType2 {
+  _InstSet
+  ..
+  _parse_instr_binary()
+  ..
+  {abstract}_inst_decode
+}
+
+left to right direction
+Instruction --> InstructionTypeI
+Instruction --> InstructionTypeJ
+Instruction --> InstructionTypeR
+Instruction --> InstructionType2
+
+InstructionTypeI --> InstructionStoreWord
+InstructionTypeI --> InstructionLoadWord
+InstructionTypeI --> InstructionBranchOnEqual
+InstructionTypeI --> InstructionBranchOnGreaterThanZero
+InstructionTypeI --> InstructionBranchOnLessThanZero
+
+InstructionTypeJ --> InstructionJump
+
+InstructionTypeR --> InstructionAddWord
+InstructionTypeR --> InstructionSubtractWord
+InstructionTypeR --> InstructionAnd
+InstructionTypeR --> InstructionNotOr
+InstructionTypeR --> InstructionShiftWordLeftLogical
+InstructionTypeR --> InstructionShiftWordRightLogical
+InstructionTypeR --> InstructionShiftWordRightArithmetic
+InstructionTypeR --> InstructionSetOnLessThan
+InstructionTypeR --> InstructionMulWord
+InstructionTypeR --> InstructionNoOperation
+InstructionTypeR --> InstructionBreakpoint
+InstructionTypeR --> InstructionJumpRegister
+
+InstructionType2 --> InstructionAddWord2
+InstructionType2 --> InstructionSubWord2
+InstructionType2 --> InstructionMulWord2
+InstructionType2 --> InstructionAnd2
+InstructionType2 --> InstructionNotOr2
+InstructionType2 --> InstructionSetOnLessThan2
+
+
+class SimpleSim{
+pc
+cycle
+is_over
+RF = RegisterFile()
+DS = DataSegment(data_mem)
+next_instr()
+}
+
+class DataSegment{
+_table
+__str__()
+mem_write()
+mem_read()
+}
+
+class RegisterFile{
+size
+Regs
+__str__()
+reg_write()
+reg_read()
+}
+SimpleSim  --* DataSegment
+SimpleSim  --* RegisterFile
+
+
+
+
+class _PipelineInstEntry{
+pc_val
+inst
+exec_cyecl
+inst.dest
+get_type()
+}
+
+
+class _RegisterAllocationUnit{
+inalu
+inalub
+inmem
+reset()
+}
+
+class Pipeline{
+..some unit..
++ IFUnit
++ PreIssue = Buffer("Pre-Issue", 4)
++ PreALU = Queue("Pre-ALU", 2)
++ PreALUB = Queue("Pre-ALUB", 2)
++ PreMEM = Queue("Pre-MEM", 2)
++ PostMEM = Buffer("Post-MEM", 1)
++ PostALU = Buffer("Post-ALU", 1)
++ PostALUB = Buffer("Post-ALUB", 1)
++ RF = RegisterFile()
++ DS = DataSegment(data_mem)
++ FU = FunctionalUnitStatus(self.RF, self.nextRF)
+..field..
+pc = 64
+is_over
+inst_mem = inst_mem
+..function units..
++ next_cycle()
++ fetch()
++ issue()
++ alu()
++ alub()
++ mem()
++ wb()
++ snapshot()
+}
+
+
+class _FUEntry{
+f_i
+f_j
+f_k
+q_j
+q_k
+r_j
+r_k
+is_ready_for_exec()
+}
+
+
+class DualStatus{
+entries
+comingentries
+update()
+add_entry(pinst)
+pop_entry()
+{abstract}__str__()
+set_idx()
+copy()
+size()
+isempty()
+isfull()
+next_entry()
+sync_size()
+sync_isempty()
+sync_size()
+sync_isfull()
+}
+
+class Queue{
+__str__()
+}
+
+class Buffer{
+__str__()
+}
+
+class DataSegment{
+_table
+__str__()
+mem_write()
+mem_read()
+}
+
+class RegisterFile{
+size
+Regs
+__str__()
+reg_write()
+reg_read()
+}
+
+class FunctionalUnitStatus{
+..function unit status..
+alu = _FUEntry(_PipelineInstEntry(None))
+alub = _FUEntry(_PipelineInstEntry(None))
+nextalu = _FUEntry(_PipelineInstEntry(None))
+nextalub = _FUEntry(_PipelineInstEntry(None))
+alu_busy = False
+alub_busy = False
+ref_RF = RF
+..
+add_entry()
+decode()
+pop_entry()
+}
+
+
+left to right direction
+
+
+Pipeline --* Queue
+Pipeline --* Buffer
+Pipeline --* _PipelineInstEntry
+Pipeline --* DataSegment
+Pipeline --* RegisterFile
+Pipeline --* FunctionalUnitStatus
+FunctionalUnitStatus --* _FUEntry
+RegisterFile --* _RegisterAllocationUnit
+
+FunctionalUnitStatus .. _PipelineInstEntry
+DataSegment .. _PipelineInstEntry
+RegisterFile .. _PipelineInstEntry
+
+DualStatus -->  Queue
+DualStatus -->  Buffer
+
+@enduml
