@@ -60,19 +60,21 @@ class SimpleSim:
         elif isinstance(cur_str, InstructionShiftWordRightLogical):
             self.RF.reg_write(cur_str.dest, signed_str_to_int("0"*cur_str.sa_val + int_to_16bitstr(rg2)[:-cur_str.sa_val]))
         elif isinstance(cur_str, InstructionShiftWordRightArithmetic):
-            self.RF.reg_write(cur_str.dest, signed_str_to_int(int_to_16bitstr(rg2)[0]*cur_str.sa_val + int_to_16bitstr(rg2)[:cur_str.sa_val]))
+            self.RF.reg_write(cur_str.dest, signed_str_to_int(int_to_16bitstr(rg2)[0]*cur_str.sa_val + int_to_16bitstr(rg2)[:-cur_str.sa_val]))
         elif isinstance(cur_str, InstructionAnd):
             self.RF.reg_write(cur_str.dest, rg1 & rg2)
         elif isinstance(cur_str, InstructionNotOr):
             self.RF.reg_write(cur_str.dest, ~(rg1 | rg2))
         elif isinstance(cur_str, InstructionMulWord):  # not checked
+            # self.RF.reg_write(cur_str.dest, signed_str_to_int(
+            #             str((rg1 * rg2) & 0xFFFFFFFF)))
             self.RF.reg_write(cur_str.dest, rg1 * rg2)
         elif isinstance(cur_str, InstructionSubtractWord):
             self.RF.reg_write(cur_str.dest, rg1 - rg2)
         elif isinstance(cur_str, InstructionAddWord):
             self.RF.reg_write(cur_str.dest, rg1 + rg2)
         elif isinstance(cur_str, InstructionSetOnLessThan):
-            self.RF.reg_write(cur_str.dest, rg1 < rg2)
+            self.RF.reg_write(cur_str.dest, int(rg1 < rg2))
         elif isinstance(cur_str, InstructionAddWord2):
             self.RF.reg_write(cur_str.dest, rg1 + cur_str.imm_val)
         elif isinstance(cur_str, InstructionSubWord2):
@@ -82,7 +84,7 @@ class SimpleSim:
         elif isinstance(cur_str, InstructionAnd2):
             self.RF.reg_write(cur_str.dest, rg1 & cur_str.imm_val)
         elif isinstance(cur_str, InstructionSetOnLessThan2):
-            self.RF.reg_write(cur_str.dest, rg1 < cur_str.imm_val)
+            self.RF.reg_write(cur_str.dest, int(rg1 < cur_str.imm_val))
 
 
 # m16 = lamda x : x 0xFFFF

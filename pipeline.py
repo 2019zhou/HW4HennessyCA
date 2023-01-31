@@ -379,7 +379,7 @@ class Pipeline:
                         "0"*val + int_to_16bitstr(rg1)[:-val])
                 elif isinstance(inst, InstructionShiftWordRightArithmetic):
                     pinst.result = signed_str_to_int(int_to_16bitstr(
-                        rg1)[0]*val + int_to_16bitstr(rg1)[:val])
+                        rg1)[0]*val + int_to_16bitstr(rg1)[:-val])
                 elif isinstance(inst, InstructionMulWord):
                     rg2 = self.RF.reg_read(self.FU.alu.f_k)
                     pinst.result = signed_str_to_int(

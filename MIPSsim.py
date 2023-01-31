@@ -12,7 +12,7 @@ parser.add_argument('--outputfilename', type=str, default='simulation.txt',
                     help="path of output file for simulation")
 parser.add_argument('--outputdis',  type=str, default='disassembly.txt',
                     help="path of output file for disassembly")
-parser.add_argument('--operation',  type=str, default='sim', choices=[
+parser.add_argument('--operation',  type=str, default='dis_sim', choices=[
                     'dis_sim', 'dis', 'sim'], help="Disassembly or simulation. The value can be 'dis_sim' which performs both disassembly and the simulation, 'dis' which performs disassembley or 'sim' which performs simulation")
 
 args = parser.parse_args()
@@ -68,9 +68,12 @@ def simulation():
 
 
 if __name__ == "__main__":
-    print("This is the MIPS 32 Simulator homework done by ZhouZhou for 2022 Computer Architecture.")
-    if operation == 'dis' or operation == 'dis_sim':
-        # dis_assembly()   # uncomment this line to perform disassembly
-        print("not for assignment 2")
-    if operation == 'sim' or operation == 'dis_sim':
-        simulation()
+    print("This is the MIPS 32 Simulator homework 2 done by ZhouZhou for 2022 Computer Architecture.")
+    try:
+        if operation == 'dis' or operation == 'dis_sim':
+            dis_assembly()   # uncomment this line to perform disassembly
+            # print("not for assignment 2")
+        if operation == 'sim' or operation == 'dis_sim':
+            simulation()
+    except:
+        print("程序错误")

@@ -562,7 +562,7 @@ class InstructionBreakpoint(InstructionTypeR):
 # Category 2 Instructions
 ###############################################
 class InstructionType2(Instruction):
-    """
+    """100100
     Category 2 type: |-1 Imm|--5 opcode--|-5 register s(rs)-|-5 register t(rt)-|--16 immediate-|
     includes:
     ADD, SUB  // category 2
@@ -579,13 +579,13 @@ class InstructionType2(Instruction):
     class _InstSet(Instruction._InstSet):
         INSTR_110000 = ('InstructionAddWord2', 'ADD')
         INSTR_110001 = ('InstructionSubWord2', 'SUB')
-        INTSR_100001 = ('InstructionMulWord2', 'MUL')
-        INTSR_110010 = ('InstructionAnd2', 'AND')
-        INTSR_110011 = ('InstructionNotOr2', 'NOR')
+        INSTR_100001 = ('InstructionMulWord2', 'MUL')
+        INSTR_110010 = ('InstructionAnd2', 'AND')
+        INSTR_110011 = ('InstructionNotOr2', 'NOR')
         INSTR_110101 = ('InstructionSetOnLessThan2', 'SLT')
 
     def _parse_instr_binary(self):
-        # print("Catogory 2 type Instruction")
+        # print("Category 2 type Instruction")
         # offset variable is for convenience.
         self.register_s = self.instr_str[6:11]
         self.register_t = self.instr_str[11:16]
